@@ -1,22 +1,30 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from .storage import append_command
 
 
 def _utc_now_iso() -> str:
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def run_command(
     cmd: list[str],
     allowed_commands: list[list[str]],
-    run_id: str,
+    run_id: str | None,
     outputs_dir: str,
     timeout_seconds: int,
+    cwd: Path | str | None = None,
+    allowed_write_roots: list[str] | None = None,
 ) -> dict:
     if cmd not in allowed_commands:
         raise PermissionError(f"Command not allowed: {cmd}")
@@ -30,6 +38,7 @@ def run_command(
             timeout=timeout_seconds,
             check=False,
             shell=False,
+            cwd=cwd,
         )
         finished_at = _utc_now_iso()
         record = {
@@ -53,5 +62,6 @@ def run_command(
             "timeout_seconds": timeout_seconds,
         }
 
-    append_command(run_id, outputs_dir, record)
+    if run_id is not None:
+        append_command(run_id, outputs_dir, record, allowed_write_roots)
     return record
