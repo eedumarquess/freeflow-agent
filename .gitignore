@@ -1,0 +1,44 @@
+# Bytecode e caches Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.Python
+
+# Ambientes virtuais
+venv/
+.venv/
+env/
+.env/
+
+# Config local (base versionada: featureflow.yaml.example)
+featureflow.yaml
+
+# Saídas de run (artefatos por execução)
+outputs/runs/*/
+!outputs/runs/.gitkeep
+
+# Pytest e cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Build e distribuição
+*.egg-info/
+*.egg
+dist/
+build/
+
+# IDE e editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# SO
+.DS_Store
+Thumbs.db
+
+# Poetry
+poetry.lock

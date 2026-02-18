@@ -134,21 +134,22 @@ Set this up now even though writes are currently limited to `outputs/` and proje
 
 ## 5. Minimal CLI (Typer)
 
-**MVP commands:**
+**MVP commands** (use `ff <subcomando> [argumentos]`; ex.: `ff run "minha story"`, `ff test <run_id>`):
 
 **`ff init`**
 - Copies `featureflow.yaml.example` → `featureflow.yaml` (if it doesn't exist)
 - Creates `outputs/runs/`
 
-**`ff run --story "text..."`**
+**`ff run <story>`**
+- Story é argumento posicional (ex.: `ff run teste` ou `ff run "minha história"`)
 - Creates a `run_id`
 - Writes inputs to `run.json`
 - Generates artifact templates
 - Runs `git status` + `git diff` (optional) and saves output to `run-report.md`
 - Does **not** modify any code yet
 
-**`ff test --run-id <id>`**
-- Runs `pytest` via allowlist
+**`ff test <run_id>`**
+- Runs `pytest` via allowlist (run_id posicional; ex.: `ff test 20260218_180959_xxxx`)
 - Saves results to `run-report.md` and `run.json`
 
 ---
@@ -200,9 +201,10 @@ Once the above is running, add the **LangGraph workflow** with gates:
 
 ## Kickoff Done Checklist
 
-- [ ] `ff init` works
-- [ ] `ff run` creates a run ID and artifacts under `outputs/runs/<id>/`
-- [ ] `ff test` runs `pytest` via allowlist with timeout
-- [ ] `run.json` records commands and their outputs
-- [ ] The project's own `pytest` suite passes
-- [ ] API lists runs and returns details
+- [x] `ff init` works
+- [x] `ff run` creates a run ID and artifacts under `outputs/runs/<id>/`
+- [x] `ff test` runs `pytest` via allowlist with timeout
+- [x] `run.json` records commands and their outputs  
+  **Como verificar:** (1) Rode `ff run teste` (ou `ff run "sua story"`) e anote o `run_id` impresso. (2) Rode `ff test <run_id>`. (3) Abra `outputs/runs/<run_id>/run.json`: o array `commands` deve ter entradas com `command`, `stdout`, `stderr`, `exit_code`, `started_at`, `finished_at` (ex.: `git status`, `git diff`, `pytest -q`). O objeto `test_results` deve ter saída do pytest.
+- [x] The project's own `pytest` suite passes
+- [x] API lists runs and returns details

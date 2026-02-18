@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import sys
 import tempfile
@@ -23,6 +23,7 @@ def test_allowed_command_executes_successfully() -> None:
             run_id,
             outputs_dir,
             timeout_seconds=10,
+            allowed_write_roots=allowed_roots,
         )
 
         assert result["exit_code"] == 0

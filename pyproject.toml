@@ -1,10 +1,13 @@
-﻿[tool.poetry]
+[tool.poetry]
 name = "freeflow"
 version = "0.1.0"
 description = "Freeflow agent"
 authors = ["Eduardo Marques <eedumarquess@gmail.com>"]
 readme = "README.md"
 packages = [{ include = "featureflow" }]
+
+[tool.poetry.scripts]
+ff = "cli.main:app"
 
 [tool.poetry.dependencies]
 python = "^3.10"
