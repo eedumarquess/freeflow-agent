@@ -1,1 +1,17 @@
-﻿# Placeholder configuration. Will be populated in a later step.
+﻿project:
+  base_branch: "master"
+runs:
+  outputs_dir: "outputs/runs"
+  max_iters: 3
+  timeout_seconds: 600
+security:
+  allowed_commands:
+    - ["pytest", "-q"]
+    - ["python", "-m", "pytest", "-q"]
+    - ["git", "diff"]
+    - ["git", "status", "--porcelain"]
+  allowed_write_roots:
+    - "featureflow"
+    - "tests"
+    - "web"
+    - "cli"

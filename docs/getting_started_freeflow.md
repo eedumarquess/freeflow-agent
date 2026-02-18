@@ -37,25 +37,21 @@ freeflow/
 └── README.md
 ```
 
-### 1.2 Toolchain Decision (to get started fast)
+### 1.2 Toolchain: Poetry
 
-Use `venv` + `pip` (or Poetry/uv if you already do). The point is: be able to run `pytest` and package the CLI.
+Use **Poetry** for dependency management and packaging. The goal is to run `pytest` and package the CLI. This guide uses Poetry commands (`poetry add`, `poetry run pytest`, etc.).
 
 ---
 
 ## 2. MVP Dependencies (minimal)
 
-Install:
+Install with Poetry:
 
-```
-pyyaml
-pydantic  (or pydantic-settings)
-typer     (CLI) or click
-fastapi + uvicorn
-pytest
+```bash
+poetry add pyyaml pydantic typer fastapi uvicorn pytest
 ```
 
-LangGraph comes later, once the core run engine exists.
+(Use `pydantic-settings` instead of `pydantic` if you prefer. LangGraph comes later, once the core run engine exists.)
 
 ---
 
@@ -182,7 +178,7 @@ The React UI comes later. Prove the backend first.
 
 Run with:
 ```bash
-uvicorn web.api:app --reload
+poetry run uvicorn web.api:app --reload
 ```
 
 ---
