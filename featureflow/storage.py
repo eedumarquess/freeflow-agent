@@ -6,6 +6,30 @@ from typing import Any
 
 from .time_utils import utc_now_iso
 
+STATUS_CREATED = "CREATED"
+STATUS_PLANNED = "PLANNED"
+STATUS_WAITING_APPROVAL_PLAN = "WAITING_APPROVAL_PLAN"
+STATUS_APPROVED_PLAN = "APPROVED_PLAN"
+STATUS_PATCH_PROPOSED = "PATCH_PROPOSED"
+STATUS_WAITING_APPROVAL_PATCH = "WAITING_APPROVAL_PATCH"
+STATUS_APPROVED_PATCH = "APPROVED_PATCH"
+STATUS_TESTS_RUNNING = "TESTS_RUNNING"
+STATUS_TESTS_FAILED = "TESTS_FAILED"
+STATUS_TESTS_PASSED = "TESTS_PASSED"
+STATUS_WAITING_APPROVAL_FINAL = "WAITING_APPROVAL_FINAL"
+STATUS_FINALIZED = "FINALIZED"
+STATUS_FAILED = "FAILED"
+
+GATE_PLAN = "plan"
+GATE_PATCH = "patch"
+GATE_FINAL = "final"
+
+GATE_TRANSITIONS = {
+    GATE_PLAN: (STATUS_WAITING_APPROVAL_PLAN, STATUS_APPROVED_PLAN),
+    GATE_PATCH: (STATUS_WAITING_APPROVAL_PATCH, STATUS_APPROVED_PATCH),
+    GATE_FINAL: (STATUS_WAITING_APPROVAL_FINAL, STATUS_FINALIZED),
+}
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -51,12 +75,13 @@ def init_run(run_id: str, inputs: dict, outputs_dir: str, allowed_roots: list[st
     now = utc_now_iso()
     data = {
         "run_id": run_id,
-        "status": "started",
+        "status": STATUS_CREATED,
         "created_at": now,
         "updated_at": now,
         "inputs": inputs,
         "commands": [],
         "test_results": None,
+        "approvals": [],
     }
     _atomic_write_json(run_path, data)
     return data
@@ -90,7 +115,48 @@ def append_command(
     write_run(run_id, outputs_dir, data, allowed_roots)
 
 
-def update_status(run_id: str, outputs_dir: str, status: str) -> None:
+def update_status(
+    run_id: str,
+    outputs_dir: str,
+    status: str,
+    allowed_roots: list[str] | None = None,
+) -> None:
     data = read_run(run_id, outputs_dir)
     data["status"] = status
-    write_run(run_id, outputs_dir, data)
+    write_run(run_id, outputs_dir, data, allowed_roots)
+
+
+def approve_gate(
+    run_id: str,
+    outputs_dir: str,
+    gate: str,
+    approver: str = "local",
+    allowed_roots: list[str] | None = None,
+) -> dict:
+    if gate not in GATE_TRANSITIONS:
+        valid = ", ".join(sorted(GATE_TRANSITIONS.keys()))
+        raise ValueError(f"Invalid gate '{gate}'. Expected one of: {valid}")
+
+    expected_status, next_status = GATE_TRANSITIONS[gate]
+    data = read_run(run_id, outputs_dir)
+    current_status = data.get("status")
+    if current_status != expected_status:
+        raise ValueError(
+            f"Cannot approve gate '{gate}' from status '{current_status}'. "
+            f"Expected status '{expected_status}'."
+        )
+
+    approvals = data.get("approvals")
+    if not isinstance(approvals, list):
+        approvals = []
+    approvals.append(
+        {
+            "gate": gate,
+            "approved_at": utc_now_iso(),
+            "approver": approver,
+        }
+    )
+    data["approvals"] = approvals
+    data["status"] = next_status
+    write_run(run_id, outputs_dir, data, allowed_roots)
+    return data
