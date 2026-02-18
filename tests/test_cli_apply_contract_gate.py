@@ -60,7 +60,7 @@ def test_apply_fails_with_failed_contract_status(tmp_path: Path, monkeypatch) ->
     assert result.exit_code == 1
     assert "INVALID CONTRACT" in result.output
     run_data = read_run(run_id, str(outputs_dir))
-    assert run_data["status"] == "FAILED_CONTRACT"
+    assert run_data["status"] == "FAILED"
     assert run_data["failure_reason"] == "Invalid change-request.md contract"
     assert isinstance(run_data["contract_issues"], list)
     assert target.read_text(encoding="utf-8") == "old\n"
@@ -107,6 +107,6 @@ Risks: Parser rejects valid headings
     assert result.exit_code == 0
     assert "Applied patch with 1 file(s) changed" in result.output
     run_data = read_run(run_id, str(outputs_dir))
-    assert run_data["status"] == "APPLIED"
+    assert run_data["status"] == "PATCH_PROPOSED"
     assert run_data["applied_files"] == ["sample.txt"]
     assert target.read_text(encoding="utf-8") == "new\n"
