@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,9 @@ def get_project_root() -> Path:
 
 def load_config(path: str | None = None) -> dict:
     root = get_project_root()
-    config_path = Path(path) if path else root / "featureflow.yaml"
+    env_path = os.getenv("FEATUREFLOW_CONFIG_PATH")
+    selected_path = path or env_path
+    config_path = Path(selected_path) if selected_path else root / "featureflow.yaml"
     if not config_path.is_absolute():
         config_path = root / config_path
     if not config_path.exists():
