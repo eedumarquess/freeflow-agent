@@ -2,7 +2,7 @@
 name = "freeflow"
 version = "0.1.0"
 description = "Freeflow agent"
-authors = ["Your Name <you@example.com>"]
+authors = ["Eduardo Marques <eedumarquess@gmail.com>"]
 readme = "README.md"
 packages = [{ include = "featureflow" }]
 
