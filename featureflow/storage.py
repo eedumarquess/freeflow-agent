@@ -1,18 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 from typing import Any
 
-
-def _utc_now_iso() -> str:
-    return (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+from .time_utils import utc_now_iso
 
 
 def _repo_root() -> Path:
@@ -56,7 +48,7 @@ def init_run(run_id: str, inputs: dict, outputs_dir: str, allowed_roots: list[st
     run_path = run_dir / "run.json"
     if run_path.exists():
         raise FileExistsError(f"Run already exists: {run_id}")
-    now = _utc_now_iso()
+    now = utc_now_iso()
     data = {
         "run_id": run_id,
         "status": "started",
@@ -79,7 +71,7 @@ def write_run(run_id: str, outputs_dir: str, data: dict, allowed_roots: list[str
     run_path = Path(outputs_dir) / run_id / "run.json"
     roots = allowed_roots or ["outputs"]
     validate_write_path(run_path, roots)
-    data["updated_at"] = _utc_now_iso()
+    data["updated_at"] = utc_now_iso()
     _atomic_write_json(run_path, data)
 
 

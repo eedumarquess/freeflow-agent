@@ -1,20 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from .storage import append_command
-
-
-def _utc_now_iso() -> str:
-    return (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+from .time_utils import utc_now_iso
 
 
 def run_command(
@@ -29,7 +20,7 @@ def run_command(
     if cmd not in allowed_commands:
         raise PermissionError(f"Command not allowed: {cmd}")
 
-    started_at = _utc_now_iso()
+    started_at = utc_now_iso()
     try:
         result = subprocess.run(
             cmd,
@@ -40,7 +31,7 @@ def run_command(
             shell=False,
             cwd=cwd,
         )
-        finished_at = _utc_now_iso()
+        finished_at = utc_now_iso()
         record = {
             "command": cmd,
             "started_at": started_at,
@@ -51,7 +42,7 @@ def run_command(
             "timeout_seconds": timeout_seconds,
         }
     except subprocess.TimeoutExpired as exc:
-        finished_at = _utc_now_iso()
+        finished_at = utc_now_iso()
         record = {
             "command": cmd,
             "started_at": started_at,
