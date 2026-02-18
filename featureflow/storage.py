@@ -1,13 +1,18 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 from typing import Any
 
 
 def _utc_now_iso() -> str:
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _repo_root() -> Path:
@@ -78,14 +83,19 @@ def write_run(run_id: str, outputs_dir: str, data: dict, allowed_roots: list[str
     _atomic_write_json(run_path, data)
 
 
-def append_command(run_id: str, outputs_dir: str, cmd_result: dict) -> None:
+def append_command(
+    run_id: str,
+    outputs_dir: str,
+    cmd_result: dict,
+    allowed_roots: list[str] | None = None,
+) -> None:
     data = read_run(run_id, outputs_dir)
     commands = data.get("commands")
     if not isinstance(commands, list):
         commands = []
     commands.append(cmd_result)
     data["commands"] = commands
-    write_run(run_id, outputs_dir, data)
+    write_run(run_id, outputs_dir, data, allowed_roots)
 
 
 def update_status(run_id: str, outputs_dir: str, status: str) -> None:
