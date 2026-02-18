@@ -7,6 +7,8 @@ import typer
 
 from featureflow.artifacts import create_run_artifacts
 from featureflow.config import get_allowed_write_roots, get_project_root, load_config
+from featureflow.contracts import validate_change_request
+from featureflow.fs_ops import apply_patch, configure_run_logging
 from featureflow.ids import generate_run_id
 from featureflow.shell import run_command
 from featureflow.storage import init_run, read_run, write_run
@@ -109,6 +111,63 @@ def test(run_id: str = typer.Argument(..., help="Run ID (e.g. from `ff run`)")) 
     write_run(run_id, outputs_dir, data)
 
     typer.echo("Tests completed")
+
+
+@app.command()
+def validate(run_id: str = typer.Option(..., "--run-id", help="Run ID to validate contracts")) -> None:
+    """Validate run contracts for a run_id."""
+    cfg = load_config()
+    root = get_project_root()
+    outputs_dir = str(root / cfg["runs"]["outputs_dir"])
+
+    change_request_path = Path(outputs_dir) / run_id / "change-request.md"
+    ok, issues = validate_change_request(change_request_path)
+    if ok:
+        typer.echo("VALID")
+        return
+
+    typer.echo("INVALID")
+    for issue in issues:
+        typer.echo(f"- {issue}")
+    raise typer.Exit(code=1)
+
+
+@app.command()
+def apply(
+    run_id: str = typer.Argument(..., help="Run ID"),
+    patch_file: Path = typer.Argument(..., exists=True, file_okay=True, dir_okay=False),
+) -> None:
+    """Apply a unified diff after validating the run change contract."""
+    cfg = load_config()
+    root = get_project_root()
+    outputs_dir = str(root / cfg["runs"]["outputs_dir"])
+    allowed_roots = get_allowed_write_roots(cfg)
+
+    run_data = read_run(run_id, outputs_dir)
+    change_request_path = Path(outputs_dir) / run_id / "change-request.md"
+    ok, issues = validate_change_request(change_request_path)
+    if not ok:
+        run_data["status"] = "FAILED_CONTRACT"
+        run_data["failure_reason"] = "Invalid change-request.md contract"
+        run_data["contract_issues"] = issues
+        write_run(run_id, outputs_dir, run_data, allowed_roots)
+        typer.echo("INVALID CONTRACT")
+        for issue in issues:
+            typer.echo(f"- {issue}")
+        raise typer.Exit(code=1)
+
+    configure_run_logging(run_id, outputs_dir, allowed_write_roots=allowed_roots)
+    unified_diff_text = patch_file.read_text(encoding="utf-8")
+    changed_files = apply_patch(root, unified_diff_text)
+
+    run_data = read_run(run_id, outputs_dir)
+    run_data["status"] = "APPLIED"
+    run_data["applied_files"] = changed_files
+    run_data.pop("failure_reason", None)
+    run_data.pop("contract_issues", None)
+    write_run(run_id, outputs_dir, run_data, allowed_roots)
+
+    typer.echo(f"Applied patch with {len(changed_files)} file(s) changed")
 
 
 if __name__ == "__main__":
