@@ -4,30 +4,31 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .run_state import RunStatus, coerce_status, is_valid_transition
 from .time_utils import utc_now_iso
 
-STATUS_CREATED = "CREATED"
-STATUS_PLANNED = "PLANNED"
-STATUS_WAITING_APPROVAL_PLAN = "WAITING_APPROVAL_PLAN"
-STATUS_APPROVED_PLAN = "APPROVED_PLAN"
-STATUS_PATCH_PROPOSED = "PATCH_PROPOSED"
-STATUS_WAITING_APPROVAL_PATCH = "WAITING_APPROVAL_PATCH"
-STATUS_APPROVED_PATCH = "APPROVED_PATCH"
-STATUS_TESTS_RUNNING = "TESTS_RUNNING"
-STATUS_TESTS_FAILED = "TESTS_FAILED"
-STATUS_TESTS_PASSED = "TESTS_PASSED"
-STATUS_WAITING_APPROVAL_FINAL = "WAITING_APPROVAL_FINAL"
-STATUS_FINALIZED = "FINALIZED"
-STATUS_FAILED = "FAILED"
+STATUS_CREATED = RunStatus.CREATED.value
+STATUS_PLANNED = RunStatus.PLANNED.value
+STATUS_WAITING_APPROVAL_PLAN = RunStatus.WAITING_APPROVAL_PLAN.value
+STATUS_APPROVED_PLAN = RunStatus.APPROVED_PLAN.value
+STATUS_PATCH_PROPOSED = RunStatus.PATCH_PROPOSED.value
+STATUS_WAITING_APPROVAL_PATCH = RunStatus.WAITING_APPROVAL_PATCH.value
+STATUS_APPROVED_PATCH = RunStatus.APPROVED_PATCH.value
+STATUS_TESTS_RUNNING = RunStatus.TESTS_RUNNING.value
+STATUS_TESTS_FAILED = RunStatus.TESTS_FAILED.value
+STATUS_TESTS_PASSED = RunStatus.TESTS_PASSED.value
+STATUS_WAITING_APPROVAL_FINAL = RunStatus.WAITING_APPROVAL_FINAL.value
+STATUS_FINALIZED = RunStatus.FINALIZED.value
+STATUS_FAILED = RunStatus.FAILED.value
 
 GATE_PLAN = "plan"
 GATE_PATCH = "patch"
 GATE_FINAL = "final"
 
 GATE_TRANSITIONS = {
-    GATE_PLAN: (STATUS_WAITING_APPROVAL_PLAN, STATUS_APPROVED_PLAN),
-    GATE_PATCH: (STATUS_WAITING_APPROVAL_PATCH, STATUS_APPROVED_PATCH),
-    GATE_FINAL: (STATUS_WAITING_APPROVAL_FINAL, STATUS_FINALIZED),
+    GATE_PLAN: (RunStatus.WAITING_APPROVAL_PLAN, RunStatus.APPROVED_PLAN),
+    GATE_PATCH: (RunStatus.WAITING_APPROVAL_PATCH, RunStatus.APPROVED_PATCH),
+    GATE_FINAL: (RunStatus.WAITING_APPROVAL_FINAL, RunStatus.FINALIZED),
 }
 
 
@@ -82,6 +83,7 @@ def init_run(run_id: str, inputs: dict, outputs_dir: str, allowed_roots: list[st
         "commands": [],
         "test_results": None,
         "approvals": [],
+        "loop_iters": 0,
     }
     _atomic_write_json(run_path, data)
     return data
@@ -115,15 +117,47 @@ def append_command(
     write_run(run_id, outputs_dir, data, allowed_roots)
 
 
+def _normalize_status(value: str | RunStatus) -> RunStatus:
+    try:
+        return coerce_status(value)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Invalid status: {value!r}") from exc
+
+
+def transition_status(
+    run_id: str,
+    outputs_dir: str,
+    next_status: str | RunStatus,
+    allowed_roots: list[str] | None = None,
+) -> dict:
+    data = read_run(run_id, outputs_dir)
+    current_raw = data.get("status")
+    current = _normalize_status(current_raw)
+    target = _normalize_status(next_status)
+    if not is_valid_transition(current, target):
+        raise ValueError(f"Invalid transition: {current.value} -> {target.value}")
+
+    if current == RunStatus.TESTS_FAILED and target == RunStatus.PATCH_PROPOSED:
+        loop_iters = data.get("loop_iters", 0)
+        if not isinstance(loop_iters, int):
+            try:
+                loop_iters = int(loop_iters)
+            except (TypeError, ValueError):
+                loop_iters = 0
+        data["loop_iters"] = loop_iters + 1
+
+    data["status"] = target.value
+    write_run(run_id, outputs_dir, data, allowed_roots)
+    return data
+
+
 def update_status(
     run_id: str,
     outputs_dir: str,
     status: str,
     allowed_roots: list[str] | None = None,
 ) -> None:
-    data = read_run(run_id, outputs_dir)
-    data["status"] = status
-    write_run(run_id, outputs_dir, data, allowed_roots)
+    transition_status(run_id, outputs_dir, status, allowed_roots)
 
 
 def approve_gate(
@@ -139,11 +173,11 @@ def approve_gate(
 
     expected_status, next_status = GATE_TRANSITIONS[gate]
     data = read_run(run_id, outputs_dir)
-    current_status = data.get("status")
+    current_status = _normalize_status(data.get("status"))
     if current_status != expected_status:
         raise ValueError(
-            f"Cannot approve gate '{gate}' from status '{current_status}'. "
-            f"Expected status '{expected_status}'."
+            f"Cannot approve gate '{gate}' from status '{current_status.value}'. "
+            f"Expected status '{expected_status.value}'."
         )
 
     approvals = data.get("approvals")
@@ -157,6 +191,6 @@ def approve_gate(
         }
     )
     data["approvals"] = approvals
-    data["status"] = next_status
+    data["status"] = next_status.value
     write_run(run_id, outputs_dir, data, allowed_roots)
     return data
