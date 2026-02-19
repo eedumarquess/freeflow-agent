@@ -14,6 +14,8 @@ from featureflow.storage import (
     GATE_FINAL,
     GATE_PATCH,
     GATE_PLAN,
+    STATUS_APPROVED_PATCH,
+    STATUS_APPROVED_PLAN,
     STATUS_FAILED,
     STATUS_FINALIZED,
     STATUS_PATCH_PROPOSED,
@@ -27,11 +29,52 @@ from featureflow.storage import (
     approve_gate,
     init_run,
     read_run,
+    transition_status,
     update_status,
     write_run,
 )
 
 app = typer.Typer(add_completion=False)
+
+
+def _run_tests_for_run(
+    run_id: str,
+    cfg: dict,
+    root: Path,
+    outputs_dir: str,
+    allowed_roots: list[str],
+) -> dict:
+    allowed_commands = cfg["security"]["allowed_commands"]
+    transition_status(run_id, outputs_dir, STATUS_TESTS_RUNNING, allowed_roots)
+
+    result = run_command(
+        ["pytest", "-q"],
+        allowed_commands,
+        run_id,
+        outputs_dir,
+        cfg["runs"]["timeout_seconds"],
+        cwd=root,
+    )
+
+    report_path = Path(outputs_dir) / run_id / "run-report.md"
+    report = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
+    report += (
+        "\n## Test Results\n"
+        f"Exit code: {result['exit_code']}\n"
+        f"Stdout:\n{result['stdout']}\n"
+        f"Stderr:\n{result['stderr']}\n"
+    )
+    report_path.write_text(report, encoding="utf-8")
+
+    data = read_run(run_id, outputs_dir)
+    data["test_results"] = {
+        "exit_code": result["exit_code"],
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+    }
+    data["status"] = STATUS_TESTS_PASSED if result["exit_code"] == 0 else STATUS_TESTS_FAILED
+    write_run(run_id, outputs_dir, data, allowed_roots)
+    return data
 
 
 @app.command()
@@ -128,10 +171,11 @@ def approve(
 def next_step(
     run_id: str = typer.Option(..., "--run-id", help="Run ID to inspect next action"),
 ) -> None:
-    """Show the next expected action for the run without mutating state."""
+    """Advance the run by one step based on current status."""
     cfg = load_config()
     root = get_project_root()
     outputs_dir = str(root / cfg["runs"]["outputs_dir"])
+    allowed_roots = get_allowed_write_roots(cfg)
     data = read_run(run_id, outputs_dir)
     status = data.get("status")
 
@@ -147,6 +191,73 @@ def next_step(
     if status == STATUS_FINALIZED:
         typer.echo("Run is already finalized.")
         return
+    if status == STATUS_FAILED:
+        typer.echo("Run is in FAILED state.")
+        return
+
+    if status == STATUS_APPROVED_PLAN:
+        try:
+            transition_status(run_id, outputs_dir, STATUS_PATCH_PROPOSED, allowed_roots)
+        except ValueError as exc:
+            typer.echo(str(exc))
+            raise typer.Exit(code=1) from exc
+        typer.echo("Moved to PATCH_PROPOSED.")
+        return
+
+    if status == STATUS_PATCH_PROPOSED:
+        try:
+            transition_status(
+                run_id, outputs_dir, STATUS_WAITING_APPROVAL_PATCH, allowed_roots
+            )
+        except ValueError as exc:
+            typer.echo(str(exc))
+            raise typer.Exit(code=1) from exc
+        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_PATCH}")
+        return
+
+    if status == STATUS_APPROVED_PATCH:
+        try:
+            data = _run_tests_for_run(run_id, cfg, root, outputs_dir, allowed_roots)
+        except ValueError as exc:
+            typer.echo(str(exc))
+            raise typer.Exit(code=1) from exc
+        typer.echo(f"Tests completed: {data['status']}")
+        return
+
+    if status == STATUS_TESTS_FAILED:
+        max_iters = int(cfg["runs"].get("max_iters", 0))
+        loop_iters = data.get("loop_iters", 0)
+        if not isinstance(loop_iters, int):
+            try:
+                loop_iters = int(loop_iters)
+            except (TypeError, ValueError):
+                loop_iters = 0
+
+        if loop_iters >= max_iters:
+            data["status"] = STATUS_FAILED
+            data["failure_reason"] = "Max iterations exceeded"
+            write_run(run_id, outputs_dir, data, allowed_roots)
+            typer.echo("Max iterations exceeded. Run marked FAILED.")
+            return
+
+        try:
+            transition_status(run_id, outputs_dir, STATUS_PATCH_PROPOSED, allowed_roots)
+        except ValueError as exc:
+            typer.echo(str(exc))
+            raise typer.Exit(code=1) from exc
+        typer.echo("Looping back to PATCH_PROPOSED.")
+        return
+
+    if status == STATUS_TESTS_PASSED:
+        try:
+            transition_status(
+                run_id, outputs_dir, STATUS_WAITING_APPROVAL_FINAL, allowed_roots
+            )
+        except ValueError as exc:
+            typer.echo(str(exc))
+            raise typer.Exit(code=1) from exc
+        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_FINAL}")
+        return
 
     typer.echo(f"No stub next action defined for status: {status}")
 
@@ -158,36 +269,11 @@ def test(run_id: str = typer.Argument(..., help="Run ID (e.g. from `ff run`)")) 
     root = get_project_root()
     outputs_dir = str(root / cfg["runs"]["outputs_dir"])
     allowed_roots = get_allowed_write_roots(cfg)
-    allowed_commands = cfg["security"]["allowed_commands"]
-    update_status(run_id, outputs_dir, STATUS_TESTS_RUNNING, allowed_roots)
-
-    result = run_command(
-        ["pytest", "-q"],
-        allowed_commands,
-        run_id,
-        outputs_dir,
-        cfg["runs"]["timeout_seconds"],
-        cwd=root,
-    )
-
-    report_path = Path(outputs_dir) / run_id / "run-report.md"
-    report = report_path.read_text(encoding="utf-8")
-    report += (
-        "\n## Test Results\n"
-        f"Exit code: {result['exit_code']}\n"
-        f"Stdout:\n{result['stdout']}\n"
-        f"Stderr:\n{result['stderr']}\n"
-    )
-    report_path.write_text(report, encoding="utf-8")
-
-    data = read_run(run_id, outputs_dir)
-    data["test_results"] = {
-        "exit_code": result["exit_code"],
-        "stdout": result["stdout"],
-        "stderr": result["stderr"],
-    }
-    data["status"] = STATUS_TESTS_PASSED if result["exit_code"] == 0 else STATUS_TESTS_FAILED
-    write_run(run_id, outputs_dir, data, allowed_roots)
+    try:
+        _run_tests_for_run(run_id, cfg, root, outputs_dir, allowed_roots)
+    except ValueError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
 
     typer.echo("Tests completed")
 
@@ -239,8 +325,13 @@ def apply(
     unified_diff_text = patch_file.read_text(encoding="utf-8")
     changed_files = apply_patch(root, unified_diff_text)
 
+    try:
+        transition_status(run_id, outputs_dir, STATUS_PATCH_PROPOSED, allowed_roots)
+    except ValueError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+
     run_data = read_run(run_id, outputs_dir)
-    run_data["status"] = STATUS_PATCH_PROPOSED
     run_data["applied_files"] = changed_files
     run_data.pop("failure_reason", None)
     run_data.pop("contract_issues", None)
