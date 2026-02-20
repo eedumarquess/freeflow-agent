@@ -92,3 +92,10 @@ def test_run_next_flow_uses_graph_and_stops_at_gates(tmp_path: Path, monkeypatch
     run_data = read_run("run_graph_001", str(outputs_dir))
     assert run_data["status"] == STATUS_FINALIZED
     assert (outputs_dir / "run_graph_001" / "pr-comment.md").exists()
+    assert (outputs_dir / "run_graph_001" / "metrics.json").exists()
+    telemetry = run_data.get("telemetry")
+    assert isinstance(telemetry, dict)
+    node_events = telemetry.get("node_events")
+    assert isinstance(node_events, list)
+    assert node_events
+    assert all(event.get("duration_sec", 0) >= 0 for event in node_events)
