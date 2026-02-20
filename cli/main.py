@@ -14,12 +14,9 @@ from featureflow.storage import (
     GATE_FINAL,
     GATE_PATCH,
     GATE_PLAN,
-    STATUS_APPROVED_PATCH,
-    STATUS_APPROVED_PLAN,
     STATUS_FAILED,
     STATUS_FINALIZED,
     STATUS_PATCH_PROPOSED,
-    STATUS_PLANNED,
     STATUS_TESTS_FAILED,
     STATUS_TESTS_PASSED,
     STATUS_TESTS_RUNNING,
@@ -30,9 +27,9 @@ from featureflow.storage import (
     init_run,
     read_run,
     transition_status,
-    update_status,
     write_run,
 )
+from featureflow.workflow.engine import advance_until_pause_or_end
 
 app = typer.Typer(add_completion=False)
 
@@ -77,6 +74,19 @@ def _run_tests_for_run(
     return data
 
 
+def _print_gate_instruction(run_id: str, status: str) -> bool:
+    if status == STATUS_WAITING_APPROVAL_PLAN:
+        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_PLAN}")
+        return True
+    if status == STATUS_WAITING_APPROVAL_PATCH:
+        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_PATCH}")
+        return True
+    if status == STATUS_WAITING_APPROVAL_FINAL:
+        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_FINAL}")
+        return True
+    return False
+
+
 @app.command()
 def init() -> None:
     """Initialize project config and outputs directory."""
@@ -93,7 +103,7 @@ def init() -> None:
 
 
 @app.command()
-def run(story: str = typer.Option(..., "--story", help="Story or feature description for this run")) -> None:
+def run(story: str = typer.Argument(..., help="Story or feature description for this run")) -> None:
     """Start a run: create run_id, run.json, and artifacts."""
     cfg = load_config()
     root = get_project_root()
@@ -103,40 +113,11 @@ def run(story: str = typer.Option(..., "--story", help="Story or feature descrip
 
     init_run(run_id, {"story": story}, outputs_dir, allowed_roots)
     create_run_artifacts(run_id, outputs_dir, allowed_roots)
-    update_status(run_id, outputs_dir, STATUS_PLANNED, allowed_roots)
-
-    # Optional git status + diff
-    allowed_commands = cfg["security"]["allowed_commands"]
-    try:
-        status_result = run_command(
-            ["git", "status", "--porcelain"],
-            allowed_commands,
-            run_id,
-            outputs_dir,
-            cfg["runs"]["timeout_seconds"],
-            cwd=root,
-        )
-        diff_result = run_command(
-            ["git", "diff"],
-            allowed_commands,
-            run_id,
-            outputs_dir,
-            cfg["runs"]["timeout_seconds"],
-            cwd=root,
-        )
-        report_path = Path(outputs_dir) / run_id / "run-report.md"
-        report = report_path.read_text(encoding="utf-8")
-        report += (
-            "\n## Git Status\n" + status_result["stdout"] + "\n"
-            "\n## Git Diff\n" + diff_result["stdout"] + "\n"
-        )
-        report_path.write_text(report, encoding="utf-8")
-    except PermissionError:
-        pass
-
-    update_status(run_id, outputs_dir, STATUS_WAITING_APPROVAL_PLAN, allowed_roots)
+    advance_until_pause_or_end(run_id, cfg=cfg, root=root)
+    status = read_run(run_id, outputs_dir).get("status", "")
     typer.echo(f"Run created: {run_id}")
-    typer.echo(f"run ff approve --run-id {run_id} --gate plan")
+    if not _print_gate_instruction(run_id, str(status)):
+        typer.echo(f"Current status: {status}")
 
 
 @app.command()
@@ -171,95 +152,31 @@ def approve(
 def next_step(
     run_id: str = typer.Option(..., "--run-id", help="Run ID to inspect next action"),
 ) -> None:
-    """Advance the run by one step based on current status."""
+    """Advance the run via LangGraph until pause point or terminal status."""
     cfg = load_config()
     root = get_project_root()
     outputs_dir = str(root / cfg["runs"]["outputs_dir"])
-    allowed_roots = get_allowed_write_roots(cfg)
     data = read_run(run_id, outputs_dir)
     status = data.get("status")
 
-    if status == STATUS_WAITING_APPROVAL_PLAN:
-        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_PLAN}")
-        return
-    if status == STATUS_WAITING_APPROVAL_PATCH:
-        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_PATCH}")
-        return
-    if status == STATUS_WAITING_APPROVAL_FINAL:
-        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_FINAL}")
-        return
-    if status == STATUS_FINALIZED:
-        typer.echo("Run is already finalized.")
+    if _print_gate_instruction(run_id, str(status)):
         return
     if status == STATUS_FAILED:
         typer.echo("Run is in FAILED state.")
         return
 
-    if status == STATUS_APPROVED_PLAN:
-        try:
-            transition_status(run_id, outputs_dir, STATUS_PATCH_PROPOSED, allowed_roots)
-        except ValueError as exc:
-            typer.echo(str(exc))
-            raise typer.Exit(code=1) from exc
-        typer.echo("Moved to PATCH_PROPOSED.")
+    final_state = advance_until_pause_or_end(run_id, cfg=cfg, root=root)
+    if _print_gate_instruction(run_id, final_state.status):
         return
-
-    if status == STATUS_PATCH_PROPOSED:
-        try:
-            transition_status(
-                run_id, outputs_dir, STATUS_WAITING_APPROVAL_PATCH, allowed_roots
-            )
-        except ValueError as exc:
-            typer.echo(str(exc))
-            raise typer.Exit(code=1) from exc
-        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_PATCH}")
+    if final_state.status == STATUS_FINALIZED:
+        typer.echo("Run is finalized.")
         return
-
-    if status == STATUS_APPROVED_PATCH:
-        try:
-            data = _run_tests_for_run(run_id, cfg, root, outputs_dir, allowed_roots)
-        except ValueError as exc:
-            typer.echo(str(exc))
-            raise typer.Exit(code=1) from exc
-        typer.echo(f"Tests completed: {data['status']}")
+    if final_state.status == STATUS_FAILED:
+        data = read_run(run_id, outputs_dir)
+        reason = data.get("failure_reason", "unknown")
+        typer.echo(f"Run failed: {reason}")
         return
-
-    if status == STATUS_TESTS_FAILED:
-        max_iters = int(cfg["runs"].get("max_iters", 0))
-        loop_iters = data.get("loop_iters", 0)
-        if not isinstance(loop_iters, int):
-            try:
-                loop_iters = int(loop_iters)
-            except (TypeError, ValueError):
-                loop_iters = 0
-
-        if loop_iters >= max_iters:
-            data["status"] = STATUS_FAILED
-            data["failure_reason"] = "Max iterations exceeded"
-            write_run(run_id, outputs_dir, data, allowed_roots)
-            typer.echo("Max iterations exceeded. Run marked FAILED.")
-            return
-
-        try:
-            transition_status(run_id, outputs_dir, STATUS_PATCH_PROPOSED, allowed_roots)
-        except ValueError as exc:
-            typer.echo(str(exc))
-            raise typer.Exit(code=1) from exc
-        typer.echo("Looping back to PATCH_PROPOSED.")
-        return
-
-    if status == STATUS_TESTS_PASSED:
-        try:
-            transition_status(
-                run_id, outputs_dir, STATUS_WAITING_APPROVAL_FINAL, allowed_roots
-            )
-        except ValueError as exc:
-            typer.echo(str(exc))
-            raise typer.Exit(code=1) from exc
-        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_FINAL}")
-        return
-
-    typer.echo(f"No stub next action defined for status: {status}")
+    typer.echo(f"Current status: {final_state.status}")
 
 
 @app.command()
@@ -333,6 +250,10 @@ def apply(
 
     run_data = read_run(run_id, outputs_dir)
     run_data["applied_files"] = changed_files
+    edits = run_data.get("edits") if isinstance(run_data.get("edits"), dict) else {}
+    edits["applied_files"] = changed_files
+    edits.setdefault("patch_text", "")
+    run_data["edits"] = edits
     run_data.pop("failure_reason", None)
     run_data.pop("contract_issues", None)
     write_run(run_id, outputs_dir, run_data, allowed_roots)
