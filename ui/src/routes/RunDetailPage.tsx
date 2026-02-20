@@ -6,13 +6,21 @@ import { DiffViewer } from "../components/DiffViewer";
 import { GateActions } from "../components/GateActions";
 import { GraphView } from "../components/GraphView";
 import { StatusBadge } from "../components/StatusBadge";
-import { decideGate, getRun, getRunGraph } from "../lib/api";
-import type { Gate, RunData, RunGraph } from "../types";
+import { decideGate, getRun, getRunGraph, getRunMetrics } from "../lib/api";
+import type { Gate, RunData, RunGraph, RunMetrics } from "../types";
+
+function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) {
+    return "-";
+  }
+  return `${seconds.toFixed(2)}s`;
+}
 
 export function RunDetailPage(): JSX.Element {
   const { runId = "" } = useParams();
   const [run, setRun] = useState<RunData | null>(null);
   const [graph, setGraph] = useState<RunGraph | null>(null);
+  const [metrics, setMetrics] = useState<RunMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [error, setError] = useState("");
@@ -22,9 +30,14 @@ export function RunDetailPage(): JSX.Element {
     setLoading(true);
     setError("");
     try {
-      const [runData, graphData] = await Promise.all([getRun(runId), getRunGraph(runId)]);
+      const [runData, graphData, metricsData] = await Promise.all([
+        getRun(runId),
+        getRunGraph(runId),
+        getRunMetrics(runId),
+      ]);
       setRun(runData);
       setGraph(graphData);
+      setMetrics(metricsData);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -101,6 +114,40 @@ export function RunDetailPage(): JSX.Element {
       {decisionMessage && <p className="success">{decisionMessage}</p>}
 
       <GateActions pendingGate={pendingGate} loading={decisionLoading} onDecision={onDecision} />
+
+      <section className="card">
+        <h3>Metrics</h3>
+        <p>Total duration: {formatDuration(metrics?.summary.total_duration_sec)}</p>
+        <p>Loop iterations: {metrics?.summary.loop_iters ?? "-"}</p>
+        <p>Test failures: {metrics?.summary.test_failures ?? "-"}</p>
+        <p>Run failed: {metrics?.summary.run_failed ?? "-"}</p>
+        <p>Total failures: {metrics?.summary.total_failures ?? "-"}</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Node</th>
+              <th>Count</th>
+              <th>Total duration</th>
+              <th>Avg duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(metrics?.nodes ?? []).map((node) => (
+              <tr key={node.node}>
+                <td>{node.node}</td>
+                <td>{node.count}</td>
+                <td>{formatDuration(node.total_duration_sec)}</td>
+                <td>{formatDuration(node.avg_duration_sec)}</td>
+              </tr>
+            ))}
+            {!metrics?.nodes?.length && (
+              <tr>
+                <td colSpan={4}>No telemetry records.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </section>
 
       <section className="card">
         <h3>Approvals</h3>

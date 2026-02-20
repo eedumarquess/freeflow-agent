@@ -9,6 +9,13 @@ function sortByUpdatedAt(items: RunData[]): RunData[] {
   return [...items].sort((a, b) => (b.updated_at ?? "").localeCompare(a.updated_at ?? ""));
 }
 
+function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) {
+    return "-";
+  }
+  return `${seconds.toFixed(2)}s`;
+}
+
 export function DashboardPage(): JSX.Element {
   const [runs, setRuns] = useState<RunData[]>([]);
   const [search, setSearch] = useState("");
@@ -73,6 +80,9 @@ export function DashboardPage(): JSX.Element {
                 <th>Run</th>
                 <th>Status</th>
                 <th>Pending Gate</th>
+                <th>Duration</th>
+                <th>Loops</th>
+                <th>Failures</th>
                 <th>Updated</th>
               </tr>
             </thead>
@@ -86,6 +96,9 @@ export function DashboardPage(): JSX.Element {
                     <StatusBadge status={run.status} />
                   </td>
                   <td>{run.approvals_state?.pending_gate ?? "-"}</td>
+                  <td>{formatDuration(run.metrics_summary?.total_duration_sec)}</td>
+                  <td>{run.metrics_summary?.loop_iters ?? "-"}</td>
+                  <td>{run.metrics_summary?.total_failures ?? "-"}</td>
                   <td>{run.updated_at ?? "-"}</td>
                 </tr>
               ))}

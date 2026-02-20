@@ -44,6 +44,25 @@ describe("RunDetailPage", () => {
         { id: "AWAIT_APPROVAL", status: "current" },
       ],
     });
+    vi.mocked(api.getRunMetrics).mockResolvedValue({
+      run_id: "run-1",
+      status: "WAITING_APPROVAL_PLAN",
+      generated_at: "2026-02-20T11:00:00Z",
+      summary: {
+        total_duration_sec: 60,
+        loop_iters: 0,
+        test_failures: 0,
+        run_failed: 0,
+        total_failures: 0,
+      },
+      failures: {
+        test_failures: 0,
+        run_failed: 0,
+        total_failures: 0,
+      },
+      has_node_telemetry: true,
+      nodes: [{ node: "PLAN", count: 1, total_duration_sec: 0.2, avg_duration_sec: 0.2 }],
+    });
     vi.mocked(api.getArtifact).mockResolvedValue("# Change Request");
     vi.mocked(api.decideGate).mockResolvedValue({
       decision: "approved",
@@ -79,6 +98,25 @@ describe("RunDetailPage", () => {
       run_id: "run-1",
       status: "WAITING_APPROVAL_PATCH",
       nodes: [{ id: "AWAIT_APPROVAL", status: "current" }],
+    });
+    vi.mocked(api.getRunMetrics).mockResolvedValue({
+      run_id: "run-1",
+      status: "WAITING_APPROVAL_PATCH",
+      generated_at: "2026-02-20T11:00:00Z",
+      summary: {
+        total_duration_sec: 10,
+        loop_iters: 0,
+        test_failures: 0,
+        run_failed: 0,
+        total_failures: 0,
+      },
+      failures: {
+        test_failures: 0,
+        run_failed: 0,
+        total_failures: 0,
+      },
+      has_node_telemetry: false,
+      nodes: [{ node: "PLAN", count: 0, total_duration_sec: null, avg_duration_sec: null }],
     });
     vi.mocked(api.getArtifact).mockResolvedValue("# Change Request");
     vi.mocked(api.decideGate).mockResolvedValue({
