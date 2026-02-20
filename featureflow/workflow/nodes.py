@@ -156,7 +156,7 @@ def propose_changes_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, An
                     id=f"manual-{idx}",
                     file=file_path,
                     intent="review-manual-patch",
-                    reason="Patch was already applied manually via ff apply.",
+                    reason="Patch was already applied manually via python -m cli.main apply.",
                 )
             )
     else:

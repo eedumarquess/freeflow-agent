@@ -62,7 +62,7 @@ def test_run_pauses_waiting_plan_and_prints_instruction(tmp_path: Path, monkeypa
 
     assert result.exit_code == 0
     assert "Run created: run_gate_001" in result.output
-    assert "run ff approve --run-id run_gate_001 --gate plan" in result.output
+    assert "run python -m cli.main approve --run-id run_gate_001 --gate plan" in result.output
 
     run_data = read_run("run_gate_001", str(outputs_dir))
     assert run_data["status"] == STATUS_WAITING_APPROVAL_PLAN

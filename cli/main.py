@@ -76,13 +76,13 @@ def _run_tests_for_run(
 
 def _print_gate_instruction(run_id: str, status: str) -> bool:
     if status == STATUS_WAITING_APPROVAL_PLAN:
-        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_PLAN}")
+        typer.echo(f"Next: run python -m cli.main approve --run-id {run_id} --gate {GATE_PLAN}")
         return True
     if status == STATUS_WAITING_APPROVAL_PATCH:
-        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_PATCH}")
+        typer.echo(f"Next: run python -m cli.main approve --run-id {run_id} --gate {GATE_PATCH}")
         return True
     if status == STATUS_WAITING_APPROVAL_FINAL:
-        typer.echo(f"Next: run ff approve --run-id {run_id} --gate {GATE_FINAL}")
+        typer.echo(f"Next: run python -m cli.main approve --run-id {run_id} --gate {GATE_FINAL}")
         return True
     return False
 
@@ -180,7 +180,9 @@ def next_step(
 
 
 @app.command()
-def test(run_id: str = typer.Argument(..., help="Run ID (e.g. from `ff run`)")) -> None:
+def test(
+    run_id: str = typer.Argument(..., help="Run ID (e.g. from `python -m cli.main run`)"),
+) -> None:
     """Run pytest via allowlist for a run_id."""
     cfg = load_config()
     root = get_project_root()
