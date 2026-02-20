@@ -80,6 +80,34 @@ These form the **auditable history** of what was done.
 
 ## Common Commands (Windows)
 
+**Comando facilitador (raiz do repo):** testa e constrói backend + UI juntos:
+
+```bash
+# Testes: backend (pytest) + frontend (Vitest)
+npm test
+
+# Build do frontend (backend é Python, sem build)
+npm run build
+```
+
+Outros scripts na raiz (`package.json`):
+
+```bash
+# Só testes backend
+npm run test:backend
+
+# Só testes frontend (ui/)
+npm run test:frontend
+
+# Subir API
+npm run dev:api
+
+# Subir UI (Vite)
+npm run dev:ui
+```
+
+Comandos diretos (quando não usar npm na raiz):
+
 ```bash
 # Run tests
 python -m pytest -q

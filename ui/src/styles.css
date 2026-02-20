@@ -1,0 +1,185 @@
+:root {
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  line-height: 1.4;
+  color: #1f2937;
+  background: #eef2f7;
+}
+
+body {
+  margin: 0;
+}
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #d6dde8;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border-bottom: 1px solid #e4e9f0;
+  text-align: left;
+  padding: 8px;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 1px solid #c3ccdb;
+  border-radius: 8px;
+  padding: 8px;
+  margin-top: 4px;
+}
+
+button {
+  padding: 8px 10px;
+  border: 1px solid #93a4be;
+  border-radius: 8px;
+  background: #f4f7fb;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.danger {
+  border-color: #cf8c8c;
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.status-default {
+  background: #e4edf8;
+}
+
+.status-waiting {
+  background: #fff2d9;
+}
+
+.status-final {
+  background: #daf2e3;
+}
+
+.status-failed {
+  background: #ffdfe0;
+}
+
+.gate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.gate-item {
+  border: 1px solid #e4e9f0;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.gate-label {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.artifact-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.artifact-tabs .active {
+  background: #e0ebff;
+}
+
+.markdown {
+  border: 1px solid #e4e9f0;
+  border-radius: 8px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.diff {
+  border: 1px solid #e4e9f0;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 10px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.graph-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.graph-node {
+  border: 1px solid #e4e9f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.graph-done {
+  background: #e8f6ec;
+}
+
+.graph-current {
+  background: #fff2d9;
+}
+
+.graph-pending {
+  background: #f2f5fa;
+}
+
+.graph-blocked {
+  background: #ffe8e9;
+}
+
+.error {
+  color: #a12029;
+}
+
+.success {
+  color: #0e6a2f;
+}

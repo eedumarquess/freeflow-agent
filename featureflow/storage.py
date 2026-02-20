@@ -209,3 +209,50 @@ def approve_gate(
     data["status"] = next_status.value
     write_run(run_id, outputs_dir, data, allowed_roots)
     return data
+
+
+def reject_gate(
+    run_id: str,
+    outputs_dir: str,
+    gate: str,
+    approver: str = "local",
+    note: str | None = None,
+    allowed_roots: list[str] | None = None,
+) -> dict:
+    if gate not in GATE_TRANSITIONS:
+        valid = ", ".join(sorted(GATE_TRANSITIONS.keys()))
+        raise ValueError(f"Invalid gate '{gate}'. Expected one of: {valid}")
+
+    expected_status, _ = GATE_TRANSITIONS[gate]
+    data = read_run(run_id, outputs_dir)
+    current_status = _normalize_status(data.get("status"))
+    if current_status != expected_status:
+        raise ValueError(
+            f"Cannot decide gate '{gate}' from status '{current_status.value}'. "
+            f"Expected status '{expected_status.value}'."
+        )
+
+    approvals = data.get("approvals")
+    if not isinstance(approvals, list):
+        approvals = []
+    approval_event = {
+        "gate": gate,
+        "approved": False,
+        "approved_at": utc_now_iso(),
+        "approver": approver,
+    }
+    if note:
+        approval_event["note"] = note
+    approvals.append(approval_event)
+
+    data["approvals"] = approvals
+    data["status"] = STATUS_FAILED
+    data["failure_reason"] = f"Gate '{gate}' rejected"
+    status_meta = data.get("status_meta")
+    if not isinstance(status_meta, dict):
+        status_meta = {}
+    status_meta["ok"] = False
+    status_meta["message"] = f"Rejected at gate '{gate}'."
+    data["status_meta"] = status_meta
+    write_run(run_id, outputs_dir, data, allowed_roots)
+    return data
