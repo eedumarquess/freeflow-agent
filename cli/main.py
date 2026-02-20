@@ -4,10 +4,10 @@ from pathlib import Path
 
 import typer
 
-from featureflow.artifacts import create_run_artifacts
+from featureflow.artifacts import append_command_logs_to_run_report, create_run_artifacts
 from featureflow.config import get_allowed_write_roots, get_project_root, load_config
 from featureflow.contracts import validate_change_request
-from featureflow.fs_ops import apply_patch, configure_run_logging
+from featureflow.fs_ops import apply_patch, configure_run_logging, inspect_patch_limits
 from featureflow.ids import generate_run_id
 from featureflow.shell import run_command
 from featureflow.storage import (
@@ -23,12 +23,15 @@ from featureflow.storage import (
     STATUS_WAITING_APPROVAL_FINAL,
     STATUS_WAITING_APPROVAL_PATCH,
     STATUS_WAITING_APPROVAL_PLAN,
+    append_command,
+    append_scope_warning,
     approve_gate,
     init_run,
     read_run,
     transition_status,
     write_run,
 )
+from featureflow.time_utils import utc_now_iso
 from featureflow.workflow.engine import advance_until_pause_or_end
 
 app = typer.Typer(add_completion=False)
@@ -44,24 +47,35 @@ def _run_tests_for_run(
     allowed_commands = cfg["security"]["allowed_commands"]
     transition_status(run_id, outputs_dir, STATUS_TESTS_RUNNING, allowed_roots)
 
-    result = run_command(
-        ["pytest", "-q"],
-        allowed_commands,
-        run_id,
-        outputs_dir,
-        cfg["runs"]["timeout_seconds"],
-        cwd=root,
-    )
+    try:
+        result = run_command(
+            ["pytest", "-q"],
+            allowed_commands,
+            None,
+            outputs_dir,
+            cfg["runs"]["timeout_seconds"],
+            cwd=root,
+            allowed_write_roots=allowed_roots,
+        )
+    except PermissionError as exc:
+        now = utc_now_iso()
+        result = {
+            "command": ["pytest", "-q"],
+            "started_at": now,
+            "finished_at": now,
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": f"Command not allowed: {exc}",
+            "timeout_seconds": cfg["runs"]["timeout_seconds"],
+        }
+    if "started_at" not in result or "finished_at" not in result:
+        now = utc_now_iso()
+        result.setdefault("started_at", now)
+        result.setdefault("finished_at", now)
+    result.setdefault("timeout_seconds", cfg["runs"]["timeout_seconds"])
+    append_command(run_id, outputs_dir, result, allowed_roots)
 
-    report_path = Path(outputs_dir) / run_id / "run-report.md"
-    report = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
-    report += (
-        "\n## Test Results\n"
-        f"Exit code: {result['exit_code']}\n"
-        f"Stdout:\n{result['stdout']}\n"
-        f"Stderr:\n{result['stderr']}\n"
-    )
-    report_path.write_text(report, encoding="utf-8")
+    append_command_logs_to_run_report(run_id, outputs_dir, allowed_roots)
 
     data = read_run(run_id, outputs_dir)
     data["test_results"] = {
@@ -242,7 +256,27 @@ def apply(
 
     configure_run_logging(run_id, outputs_dir, allowed_write_roots=allowed_roots)
     unified_diff_text = patch_file.read_text(encoding="utf-8")
-    changed_files = apply_patch(root, unified_diff_text)
+    limits = inspect_patch_limits(unified_diff_text, cfg=cfg)
+    if limits["violations"]:
+        warning = {
+            "kind": "small_diff_limit",
+            "source": "CLI_APPLY",
+            "created_at": utc_now_iso(),
+            "details": limits,
+        }
+        append_scope_warning(run_id, outputs_dir, warning, allowed_roots)
+        report_path = Path(outputs_dir) / run_id / "run-report.md"
+        report = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
+        report += (
+            "\n## Scope Warning (CLI_APPLY)\n"
+            f"- Diff lines: `{limits['diff_lines']}` (limit `{limits['max_diff_lines']}`)\n"
+            f"- Files changed: `{limits['files_changed']}` (limit `{limits['max_files_changed']}`)\n"
+        )
+        for violation in limits["violations"]:
+            report += f"- Violation `{violation.get('rule', 'unknown')}`: {violation.get('message', '')}\n"
+        report_path.write_text(report, encoding="utf-8")
+
+    changed_files = apply_patch(root, unified_diff_text, enforce_limits=False)
 
     try:
         transition_status(run_id, outputs_dir, STATUS_PATCH_PROPOSED, allowed_roots)

@@ -77,6 +77,11 @@ def test_run_next_flow_uses_graph_and_stops_at_gates(tmp_path: Path, monkeypatch
     assert next_after_patch.exit_code == 0
     run_data = read_run("run_graph_001", str(outputs_dir))
     assert run_data["status"] == STATUS_WAITING_APPROVAL_FINAL
+    run_report = (outputs_dir / "run_graph_001" / "run-report.md").read_text(encoding="utf-8")
+    assert "Node RUN_TESTS" in run_report
+    assert "Stdout:\nok" in run_report
+    assert "Stderr:\n" in run_report
+    assert "## Command Log: `pytest -q`" in run_report
 
     approve_final = runner.invoke(
         cli_main.app, ["approve", "--run-id", "run_graph_001", "--gate", "final"]

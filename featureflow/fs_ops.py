@@ -64,6 +64,42 @@ def _limits_from_cfg(cfg: dict) -> tuple[int, int, int]:
     return max_file_bytes, max_diff_lines, max_files_changed
 
 
+def inspect_patch_limits(unified_diff_text: str, cfg: dict | None = None) -> dict[str, Any]:
+    active_cfg = cfg if cfg is not None else _load_cfg()
+    _, max_diff_lines, max_files_changed = _limits_from_cfg(active_cfg)
+    diff_lines = len(unified_diff_text.splitlines())
+    patches = parse_unified_diff(unified_diff_text)
+    files_changed = len(patches)
+
+    violations: list[dict[str, Any]] = []
+    if diff_lines > max_diff_lines:
+        violations.append(
+            {
+                "rule": "max_diff_lines",
+                "limit": max_diff_lines,
+                "actual": diff_lines,
+                "message": f"Diff too large: exceeds {max_diff_lines} lines",
+            }
+        )
+    if files_changed > max_files_changed:
+        violations.append(
+            {
+                "rule": "max_files_changed",
+                "limit": max_files_changed,
+                "actual": files_changed,
+                "message": f"Too many files changed: exceeds {max_files_changed}",
+            }
+        )
+
+    return {
+        "diff_lines": diff_lines,
+        "files_changed": files_changed,
+        "max_diff_lines": max_diff_lines,
+        "max_files_changed": max_files_changed,
+        "violations": violations,
+    }
+
+
 def _is_relative_to(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -183,20 +219,21 @@ def write_file(path: str | Path, content: str) -> None:
         raise
 
 
-def apply_patch(root_dir: str | Path, unified_diff_text: str) -> list[str]:
+def apply_patch(root_dir: str | Path, unified_diff_text: str, *, enforce_limits: bool = True) -> list[str]:
     started_at = utc_now_iso()
     cfg = _load_cfg()
     repo_root = get_project_root()
     allowed_roots = get_allowed_write_roots(cfg)
-    max_file_bytes, max_diff_lines, max_files_changed = _limits_from_cfg(cfg)
+    max_file_bytes, max_diff_lines, _ = _limits_from_cfg(cfg)
 
     try:
-        if len(unified_diff_text.splitlines()) > max_diff_lines:
+        if enforce_limits and len(unified_diff_text.splitlines()) > max_diff_lines:
             raise DiffTooLargeError(f"Diff too large: exceeds {max_diff_lines} lines")
-
+        limits = inspect_patch_limits(unified_diff_text, cfg=cfg)
+        if enforce_limits and limits["violations"]:
+            message = str(limits["violations"][0]["message"])
+            raise DiffTooLargeError(message)
         patches = parse_unified_diff(unified_diff_text)
-        if len(patches) > max_files_changed:
-            raise DiffTooLargeError(f"Too many files changed: exceeds {max_files_changed}")
 
         root_abs = Path(root_dir).resolve(strict=False)
         changed: list[str] = []

@@ -117,6 +117,21 @@ def append_command(
     write_run(run_id, outputs_dir, data, allowed_roots)
 
 
+def append_scope_warning(
+    run_id: str,
+    outputs_dir: str,
+    warning: dict[str, Any],
+    allowed_roots: list[str] | None = None,
+) -> None:
+    data = read_run(run_id, outputs_dir)
+    warnings = data.get("scope_warnings")
+    if not isinstance(warnings, list):
+        warnings = []
+    warnings.append(warning)
+    data["scope_warnings"] = warnings
+    write_run(run_id, outputs_dir, data, allowed_roots)
+
+
 def _normalize_status(value: str | RunStatus) -> RunStatus:
     try:
         return coerce_status(value)

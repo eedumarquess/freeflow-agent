@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from featureflow.errors import DiffTooLargeError, FileTooLargeError
-from featureflow.fs_ops import apply_patch, write_file
+from featureflow.fs_ops import apply_patch, inspect_patch_limits, write_file
 
 
 def _write_cfg(
@@ -56,4 +56,62 @@ def test_apply_patch_rejects_large_diff(tmp_path: Path, monkeypatch: pytest.Monk
     diff = "a\nb\nc\nd\n"
     with pytest.raises(DiffTooLargeError):
         apply_patch(allowed, diff)
+
+
+def test_inspect_patch_limits_reports_violations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    cfg_path = tmp_path / "featureflow.yaml"
+    _write_cfg(cfg_path, allowed, max_file_bytes=524288, max_diff_lines=20, max_files_changed=3)
+    monkeypatch.setenv("FEATUREFLOW_CONFIG_PATH", str(cfg_path))
+
+    within = """--- a/x.txt
++++ b/x.txt
+@@ -1 +1 @@
+-a
++b
+"""
+    within_limits = inspect_patch_limits(within)
+    assert within_limits["violations"] == []
+    assert within_limits["diff_lines"] == len(within.splitlines())
+    assert within_limits["files_changed"] == 1
+
+    over_lines_limits = inspect_patch_limits(
+        within,
+        cfg={
+            "security": {
+                "fs_ops": {
+                    "max_file_bytes": 524288,
+                    "max_diff_lines": 3,
+                    "max_files_changed": 3,
+                }
+            }
+        },
+    )
+    assert any(v["rule"] == "max_diff_lines" for v in over_lines_limits["violations"])
+
+    over_files = """--- a/a.txt
++++ b/a.txt
+@@ -1 +1 @@
+-a
++b
+--- a/b.txt
++++ b/b.txt
+@@ -1 +1 @@
+-a
++b
+"""
+    over_files_limits = inspect_patch_limits(
+        over_files,
+        cfg={
+            "security": {
+                "fs_ops": {
+                    "max_file_bytes": 524288,
+                    "max_diff_lines": 20,
+                    "max_files_changed": 1,
+                }
+            }
+        },
+    )
+    assert any(v["rule"] == "max_files_changed" for v in over_files_limits["violations"])
 

@@ -123,3 +123,74 @@ Risks: Parser rejects valid headings
     assert run_data["status"] == "PATCH_PROPOSED"
     assert run_data["applied_files"] == ["sample.txt"]
     assert target.read_text(encoding="utf-8") == "new\n"
+
+
+def test_apply_warns_when_small_diff_limits_are_exceeded(tmp_path: Path, monkeypatch) -> None:
+    outputs_dir = tmp_path / "outputs" / "runs"
+    run_dir = outputs_dir / "run_warn_cli"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    cfg_path = tmp_path / "featureflow.yaml"
+    cfg_path.write_text(
+        f"""
+project:
+  base_branch: "main"
+runs:
+  outputs_dir: "{outputs_dir.as_posix()}"
+  max_iters: 1
+  timeout_seconds: 60
+security:
+  allowed_commands: []
+  allowed_write_roots:
+    - "{tmp_path.as_posix()}"
+  fs_ops:
+    max_file_bytes: 524288
+    max_diff_lines: 3
+    max_files_changed: 20
+""".lstrip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FEATUREFLOW_CONFIG_PATH", str(cfg_path))
+    monkeypatch.setattr(cli_main, "get_project_root", lambda: tmp_path)
+    monkeypatch.setattr(fs_ops, "get_project_root", lambda: tmp_path)
+
+    run_id = "run_warn_cli"
+    init_run(run_id, {"story": "test"}, str(outputs_dir), [str(tmp_path)])
+    update_status(run_id, str(outputs_dir), STATUS_PLANNED, [str(tmp_path)])
+    update_status(run_id, str(outputs_dir), STATUS_WAITING_APPROVAL_PLAN, [str(tmp_path)])
+    update_status(run_id, str(outputs_dir), STATUS_APPROVED_PLAN, [str(tmp_path)])
+    (run_dir / "change-request.md").write_text(
+        """Objective: Apply patch safely
+Scope: Validate contract before apply
+Out-of-scope: No API changes
+Done criteria: Patch applies and run status updates
+Risks: Parser rejects valid headings
+""",
+        encoding="utf-8",
+    )
+
+    target = tmp_path / "sample.txt"
+    target.write_text("old\n", encoding="utf-8")
+    patch_file = tmp_path / "change.diff"
+    patch_file.write_text(
+        """--- a/sample.txt
++++ b/sample.txt
+@@ -1 +1 @@
+-old
++new
+""",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli_main.app, ["apply", run_id, str(patch_file)])
+
+    assert result.exit_code == 0
+    run_data = read_run(run_id, str(outputs_dir))
+    warnings = run_data.get("scope_warnings")
+    assert isinstance(warnings, list)
+    assert warnings
+    assert warnings[0]["source"] == "CLI_APPLY"
+
+    report = (run_dir / "run-report.md").read_text(encoding="utf-8")
+    assert "Scope Warning (CLI_APPLY)" in report
+    assert "Violation `max_diff_lines`" in report
