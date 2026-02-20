@@ -69,6 +69,7 @@ def _atomic_write_json(path: Path, data: dict) -> None:
 
 
 def init_run(run_id: str, inputs: dict, outputs_dir: str, allowed_roots: list[str] | None = None) -> dict:
+    roots = allowed_roots or ["outputs"]
     run_dir = ensure_run_dir(run_id, outputs_dir, allowed_roots)
     run_path = run_dir / "run.json"
     if run_path.exists():
@@ -84,8 +85,15 @@ def init_run(run_id: str, inputs: dict, outputs_dir: str, allowed_roots: list[st
         "test_results": None,
         "approvals": [],
         "loop_iters": 0,
+        "telemetry": {
+            "node_events": [],
+            "node_stats": {},
+        },
     }
     _atomic_write_json(run_path, data)
+    from .telemetry import write_metrics_json
+
+    write_metrics_json(run_id, outputs_dir, roots, run_data=data, run_report_text="")
     return data
 
 
