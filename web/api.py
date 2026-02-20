@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from featureflow.telemetry import compute_metrics, write_metrics_json
 from featureflow.storage import (
     STATUS_FAILED,
     approve_gate,
@@ -69,6 +70,11 @@ def _normalize_run_payload(data: dict[str, Any]) -> dict[str, Any]:
         status_meta = {}
     status_meta.setdefault("last_node", None)
     normalized["status_meta"] = status_meta
+
+    metrics_summary = normalized.get("metrics_summary")
+    if not isinstance(metrics_summary, dict):
+        metrics_summary = {}
+    normalized["metrics_summary"] = metrics_summary
     return normalized
 
 
@@ -108,6 +114,39 @@ def _graph_node_statuses(run_data: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
+def _run_report_text(runs_dir: Path, run_id: str) -> str:
+    report_path = runs_dir / run_id / "run-report.md"
+    if not report_path.exists():
+        return ""
+    try:
+        return report_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _allowed_roots_for_runs_dir(runs_dir: Path) -> list[str]:
+    if len(runs_dir.parents) > 1:
+        return [str(runs_dir.parents[1])]
+    return [str(runs_dir.parent)]
+
+
+def _metrics_for_run(run_id: str, run_data: dict[str, Any], runs_dir: Path) -> dict[str, Any]:
+    report_text = _run_report_text(runs_dir, run_id)
+    metrics = compute_metrics(run_data, report_text)
+    try:
+        write_metrics_json(
+            run_id=run_id,
+            outputs_dir=str(runs_dir),
+            allowed_roots=_allowed_roots_for_runs_dir(runs_dir),
+            run_data=run_data,
+            run_report_text=report_text,
+        )
+    except Exception:
+        # API responses should not fail when metrics export is temporarily unavailable.
+        pass
+    return metrics
+
+
 @app.get("/runs")
 def list_runs() -> list[dict]:
     runs_dir = _runs_dir()
@@ -122,7 +161,11 @@ def list_runs() -> list[dict]:
         if not run_file.exists():
             continue
         try:
-            items.append(_normalize_run_payload(read_run(run_dir.name, str(runs_dir))))
+            run_data = read_run(run_dir.name, str(runs_dir))
+            normalized = _normalize_run_payload(run_data)
+            metrics = _metrics_for_run(run_dir.name, run_data, runs_dir)
+            normalized["metrics_summary"] = metrics.get("summary", {})
+            items.append(normalized)
         except Exception:
             continue
     return items
@@ -181,6 +224,16 @@ def get_run_graph(run_id: str) -> dict[str, Any]:
         "status": str(run_data.get("status", "")),
         "nodes": _graph_node_statuses(run_data),
     }
+
+
+@app.get("/runs/{run_id}/metrics")
+def get_run_metrics(run_id: str) -> dict[str, Any]:
+    runs_dir = _runs_dir()
+    try:
+        run_data = read_run(run_id, str(runs_dir))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+    return _metrics_for_run(run_id, run_data, runs_dir)
 
 
 @app.get("/runs/{run_id}/artifacts/{name}")

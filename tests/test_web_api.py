@@ -7,11 +7,14 @@ from fastapi.testclient import TestClient
 from featureflow.artifacts import create_run_artifacts
 import featureflow.storage as storage
 from featureflow.storage import (
+    STATUS_FAILED,
     STATUS_PLANNED,
     STATUS_WAITING_APPROVAL_PLAN,
+    append_command,
     init_run,
     read_run,
     update_status,
+    write_run,
 )
 from web.api import app
 
@@ -285,3 +288,61 @@ def test_get_run_graph_finalized_and_failed_states(tmp_path: Path, monkeypatch) 
     assert final_resp.status_code == 200
     final_nodes = final_resp.json()["nodes"]
     assert any(node["id"] == "FINALIZE" and node["status"] == "current" for node in final_nodes)
+
+
+def test_get_runs_includes_metrics_summary(tmp_path: Path, monkeypatch) -> None:
+    runs_dir = tmp_path / "outputs" / "runs"
+    run_id = "run_api_metrics_summary"
+    init_run(run_id, {"story": "metrics"}, str(runs_dir), [str(tmp_path)])
+    append_command(
+        run_id,
+        str(runs_dir),
+        {
+            "command": ["python", "-m", "pytest", "-q"],
+            "started_at": "2026-02-20T10:00:00Z",
+            "finished_at": "2026-02-20T10:00:03Z",
+            "exit_code": 1,
+            "stdout": "failed",
+            "stderr": "",
+            "timeout_seconds": 60,
+        },
+        [str(tmp_path)],
+    )
+    data = read_run(run_id, str(runs_dir))
+    data["status"] = STATUS_FAILED
+    data["loop_iters"] = 2
+    data["created_at"] = "2026-02-20T10:00:00Z"
+    data["updated_at"] = "2026-02-20T10:00:06Z"
+    write_run(run_id, str(runs_dir), data, [str(tmp_path)])
+    _set_runs_dir(monkeypatch, runs_dir)
+    client = TestClient(app)
+
+    response = client.get("/runs")
+
+    assert response.status_code == 200
+    runs = response.json()
+    item = next(run for run in runs if run["run_id"] == run_id)
+    assert item["metrics_summary"]["loop_iters"] == 2
+    assert item["metrics_summary"]["test_failures"] == 1
+    assert item["metrics_summary"]["run_failed"] == 1
+    assert item["metrics_summary"]["total_failures"] == 2
+    assert item["metrics_summary"]["total_duration_sec"] is not None
+    assert item["metrics_summary"]["total_duration_sec"] >= 0
+
+
+def test_get_run_metrics_returns_payload_and_exports_file(tmp_path: Path, monkeypatch) -> None:
+    runs_dir = tmp_path / "outputs" / "runs"
+    run_id = "run_api_metrics"
+    init_run(run_id, {"story": "metrics endpoint"}, str(runs_dir), [str(tmp_path)])
+    _set_runs_dir(monkeypatch, runs_dir)
+    client = TestClient(app)
+
+    response = client.get(f"/runs/{run_id}/metrics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"] == run_id
+    assert payload["summary"]["loop_iters"] == 0
+    assert payload["nodes"]
+    assert all(node["total_duration_sec"] is None for node in payload["nodes"])
+    assert (runs_dir / run_id / "metrics.json").exists()

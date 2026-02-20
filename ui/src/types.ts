@@ -2,6 +2,35 @@ export type Gate = "plan" | "patch" | "final";
 
 export type GraphNodeState = "done" | "current" | "pending" | "blocked";
 
+export interface RunMetricsSummary {
+  total_duration_sec: number | null;
+  loop_iters: number;
+  test_failures: number;
+  run_failed: number;
+  total_failures: number;
+}
+
+export interface NodeMetric {
+  node: string;
+  count: number;
+  total_duration_sec: number | null;
+  avg_duration_sec: number | null;
+}
+
+export interface RunMetrics {
+  run_id: string;
+  status: string;
+  generated_at: string;
+  summary: RunMetricsSummary;
+  failures: {
+    test_failures: number;
+    run_failed: number;
+    total_failures: number;
+  };
+  nodes: NodeMetric[];
+  has_node_telemetry: boolean;
+}
+
 export interface ApprovalEvent {
   gate: Gate;
   approved?: boolean;
@@ -38,6 +67,7 @@ export interface RunData {
     last_node?: string | null;
     message?: string;
   };
+  metrics_summary?: Partial<RunMetricsSummary>;
 }
 
 export interface GraphNode {
