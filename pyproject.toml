@@ -1,25 +1,23 @@
-[tool.poetry]
+[project]
 name = "freeflow"
 version = "0.1.0"
 description = "Freeflow agent"
-authors = ["Eduardo Marques <eedumarquess@gmail.com>"]
 readme = "README.md"
-packages = [{ include = "featureflow" }]
-
-[tool.poetry.scripts]
-ff = "cli.main:app"
-
-[tool.poetry.dependencies]
-python = "^3.10"
-pyyaml = "^6.0.1"
-pydantic = "^2.7.0"
-typer = "^0.12.0"
-fastapi = "^0.110.0"
-uvicorn = "^0.30.0"
-pytest = "^8.0"
-langchain = "^0.3.0"
-langgraph = "^0.2.0"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0.1",
+    "pydantic>=2.7.0",
+    "typer>=0.12.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.30.0",
+    "pytest>=8.0",
+    "langchain>=0.3.0",
+    "langgraph>=0.2.0",
+]
 
 [build-system]
-requires = ["poetry-core>=1.8.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["featureflow*", "cli*"]
