@@ -63,6 +63,19 @@ not yet calculated
 """
 
 
+PR_COMMENT_TEMPLATE = """# PR Comment
+
+## Summary
+- 
+
+## Validation
+- 
+
+## Risk
+- 
+"""
+
+
 def _write_file(path: Path, content: str, allowed_roots: list[str]) -> None:
     validate_write_path(path, allowed_roots)
     path.write_text(content, encoding="utf-8")
@@ -75,6 +88,7 @@ def create_run_artifacts(run_id: str, outputs_dir: str, allowed_roots: list[str]
         run_dir / "test-plan.md": TEST_PLAN_TEMPLATE,
         run_dir / "run-report.md": RUN_REPORT_TEMPLATE,
         run_dir / "risk-report.md": RISK_REPORT_TEMPLATE,
+        run_dir / "pr-comment.md": PR_COMMENT_TEMPLATE,
     }
     for path, content in files.items():
         _write_file(path, content, allowed_roots)
