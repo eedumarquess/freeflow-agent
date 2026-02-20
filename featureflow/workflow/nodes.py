@@ -5,7 +5,7 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from featureflow.artifacts import append_command_logs_to_run_report, create_run_artifacts
 from featureflow.config import get_allowed_write_roots
@@ -29,6 +29,7 @@ from featureflow.storage import (
     read_run,
     write_run,
 )
+from featureflow.telemetry import append_node_event, write_metrics_json
 from featureflow.time_utils import utc_now_iso
 
 from .state import ProposedStep, RunGraphState, build_graph_state, merge_state_into_run_data
@@ -492,8 +493,91 @@ def finalize_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
     return state.model_dump()
 
 
+def _safe_record_node_telemetry(
+    run_id: str,
+    node_name: str,
+    started_at: str,
+    finished_at: str,
+    duration_sec: float,
+    status_before: str,
+    status_after: str,
+    ok: bool,
+    ctx: NodeContext,
+) -> None:
+    if not run_id:
+        return
+    try:
+        append_node_event(
+            run_id=run_id,
+            outputs_dir=ctx.outputs_dir,
+            node=node_name,
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_sec=duration_sec,
+            status_before=status_before,
+            status_after=status_after,
+            ok=ok,
+            allowed_roots=ctx.allowed_roots,
+        )
+        write_metrics_json(run_id, ctx.outputs_dir, ctx.allowed_roots)
+    except Exception:
+        # Telemetry must not break the workflow execution path.
+        return
+
+
+def _instrument_node_handler(
+    node_name: str,
+    handler: Callable[[dict[str, Any]], dict[str, Any]],
+    ctx: NodeContext,
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def _wrapped(data: dict[str, Any]) -> dict[str, Any]:
+        run_id = str(data.get("run_id", ""))
+        status_before = str(data.get("status", ""))
+        started_at = utc_now_iso()
+        started_monotonic = time.perf_counter()
+        try:
+            out = handler(data)
+        except Exception:
+            finished_at = utc_now_iso()
+            elapsed = max(0.0, time.perf_counter() - started_monotonic)
+            _safe_record_node_telemetry(
+                run_id=run_id,
+                node_name=node_name,
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_sec=elapsed,
+                status_before=status_before,
+                status_after=status_before,
+                ok=False,
+                ctx=ctx,
+            )
+            raise
+
+        finished_at = utc_now_iso()
+        elapsed = max(0.0, time.perf_counter() - started_monotonic)
+        status_after = str(out.get("status", status_before))
+        ok = True
+        status_meta = out.get("status_meta")
+        if isinstance(status_meta, dict):
+            ok = bool(status_meta.get("ok", True))
+        _safe_record_node_telemetry(
+            run_id=run_id,
+            node_name=node_name,
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_sec=elapsed,
+            status_before=status_before,
+            status_after=status_after,
+            ok=ok,
+            ctx=ctx,
+        )
+        return out
+
+    return _wrapped
+
+
 def get_node_handlers(ctx: NodeContext) -> dict[str, Any]:
-    return {
+    handlers = {
         "LOAD_CONTEXT": lambda data: load_context_node(data, ctx),
         "PLAN": lambda data: plan_node(data, ctx),
         "PROPOSE_CHANGES": lambda data: propose_changes_node(data, ctx),
@@ -505,6 +589,10 @@ def get_node_handlers(ctx: NodeContext) -> dict[str, Any]:
         "REGRESSION_RISK": lambda data: regression_risk_node(data, ctx),
         "REVIEW": lambda data: review_node(data, ctx),
         "FINALIZE": lambda data: finalize_node(data, ctx),
+    }
+    return {
+        node_name: _instrument_node_handler(node_name, handler, ctx)
+        for node_name, handler in handlers.items()
     }
 
 
