@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from featureflow.artifacts import create_run_artifacts
+from featureflow.artifacts import append_command_logs_to_run_report, create_run_artifacts
 from featureflow.config import get_allowed_write_roots
 from featureflow.contracts import validate_change_request
-from featureflow.fs_ops import apply_patch, configure_run_logging
+from featureflow.fs_ops import apply_patch, configure_run_logging, inspect_patch_limits
 from featureflow.git_ops import ensure_agent_branch, get_current_diff, get_status_porcelain
 from featureflow.shell import run_command
 from featureflow.storage import (
@@ -24,9 +24,12 @@ from featureflow.storage import (
     STATUS_WAITING_APPROVAL_FINAL,
     STATUS_WAITING_APPROVAL_PATCH,
     STATUS_WAITING_APPROVAL_PLAN,
+    append_command,
+    append_scope_warning,
     read_run,
     write_run,
 )
+from featureflow.time_utils import utc_now_iso
 
 from .state import ProposedStep, RunGraphState, build_graph_state, merge_state_into_run_data
 
@@ -47,6 +50,16 @@ def _append_markdown(path: Path, title: str, body: str) -> None:
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
     line = f"\n## {title}\n{body.rstrip()}\n"
     path.write_text(existing + line, encoding="utf-8")
+
+
+def _format_scope_warning(limits: dict[str, Any]) -> str:
+    lines = [
+        f"- Diff lines: `{limits['diff_lines']}` (limit `{limits['max_diff_lines']}`)",
+        f"- Files changed: `{limits['files_changed']}` (limit `{limits['max_files_changed']}`)",
+    ]
+    for violation in limits.get("violations", []):
+        lines.append(f"- Violation `{violation.get('rule', 'unknown')}`: {violation.get('message', '')}")
+    return "\n".join(lines)
 
 
 def _list_repo_files(root: Path, max_entries: int = 250) -> list[str]:
@@ -231,9 +244,23 @@ def apply_changes_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]
         return state.model_dump()
 
     if state.edits.patch_text.strip():
+        limits = inspect_patch_limits(state.edits.patch_text, cfg=ctx.cfg)
+        if limits["violations"]:
+            warning = {
+                "kind": "small_diff_limit",
+                "source": "APPLY_CHANGES",
+                "created_at": utc_now_iso(),
+                "details": limits,
+            }
+            append_scope_warning(state.run_id, ctx.outputs_dir, warning, ctx.allowed_roots)
+            _append_markdown(
+                Path(state.artifacts.run_report_path),
+                "Scope Warning (APPLY_CHANGES)",
+                _format_scope_warning(limits),
+            )
         configure_run_logging(state.run_id, ctx.outputs_dir, allowed_write_roots=ctx.allowed_roots)
         try:
-            changed = apply_patch(ctx.repo_root, state.edits.patch_text)
+            changed = apply_patch(ctx.repo_root, state.edits.patch_text, enforce_limits=False)
             state.edits.applied_files = changed
         except Exception as exc:
             state.status = STATUS_FAILED
@@ -272,19 +299,29 @@ def run_tests_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
         result = run_command(
             pytest_cmd,
             allowed_commands,
-            state.run_id,
+            None,
             ctx.outputs_dir,
             timeout_seconds,
             cwd=ctx.repo_root,
             allowed_write_roots=ctx.allowed_roots,
         )
     except PermissionError as exc:
+        now = utc_now_iso()
         result = {
             "command": pytest_cmd,
+            "started_at": now,
+            "finished_at": now,
             "exit_code": 1,
             "stdout": "",
             "stderr": f"Command not allowed: {exc}",
+            "timeout_seconds": timeout_seconds,
         }
+    if "started_at" not in result or "finished_at" not in result:
+        now = utc_now_iso()
+        result.setdefault("started_at", now)
+        result.setdefault("finished_at", now)
+    result.setdefault("timeout_seconds", timeout_seconds)
+    append_command(state.run_id, ctx.outputs_dir, result, ctx.allowed_roots)
     state.tests.duration_sec = max(0.0, time.time() - started)
     state.tests.last_stdout = str(result.get("stdout", ""))
     state.tests.last_stderr = str(result.get("stderr", ""))
@@ -299,6 +336,7 @@ def run_tests_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
     exit_code = result.get("exit_code")
     state.status = STATUS_TESTS_PASSED if exit_code == 0 else STATUS_TESTS_FAILED
     _sync_commands(state, ctx)
+    append_command_logs_to_run_report(state.run_id, ctx.outputs_dir, ctx.allowed_roots)
 
     _append_markdown(
         Path(state.artifacts.run_report_path),
@@ -419,6 +457,7 @@ def finalize_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
     state.status_meta.last_node = "FINALIZE"
     state.status_meta.stage = "finalized"
     state.status = STATUS_FINALIZED
+    append_command_logs_to_run_report(state.run_id, ctx.outputs_dir, ctx.allowed_roots)
 
     report_lines = [
         f"- Final status: `{state.status}`",
