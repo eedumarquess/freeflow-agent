@@ -1,0 +1,14 @@
+{
+  "name": "free-flow-agent",
+  "private": true,
+  "description": "Freeflow — backend (Python) + UI (React/Vite)",
+  "scripts": {
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "python -m pytest -q",
+    "test:frontend": "npm run test --prefix ui",
+    "build": "npm run build:frontend",
+    "build:frontend": "npm run build --prefix ui",
+    "dev:api": "uvicorn web.api:app --reload",
+    "dev:ui": "npm run dev --prefix ui"
+  }
+}

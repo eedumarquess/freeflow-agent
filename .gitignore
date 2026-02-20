@@ -42,3 +42,6 @@ Thumbs.db
 
 # Poetry
 poetry.lock
+node_modules/
+ui/node_modules/
+ui/.vite/
