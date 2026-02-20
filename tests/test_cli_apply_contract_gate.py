@@ -6,7 +6,14 @@ from typer.testing import CliRunner
 
 import cli.main as cli_main
 import featureflow.fs_ops as fs_ops
-from featureflow.storage import init_run, read_run
+from featureflow.storage import (
+    STATUS_APPROVED_PLAN,
+    STATUS_PLANNED,
+    STATUS_WAITING_APPROVAL_PLAN,
+    init_run,
+    read_run,
+    update_status,
+)
 
 
 def _write_cfg(path: Path, outputs_dir: Path, allowed_root: Path) -> None:
@@ -40,6 +47,9 @@ def test_apply_fails_with_failed_contract_status(tmp_path: Path, monkeypatch) ->
 
     run_id = "run_fail"
     init_run(run_id, {"story": "test"}, str(outputs_dir), [str(tmp_path)])
+    update_status(run_id, str(outputs_dir), STATUS_PLANNED, [str(tmp_path)])
+    update_status(run_id, str(outputs_dir), STATUS_WAITING_APPROVAL_PLAN, [str(tmp_path)])
+    update_status(run_id, str(outputs_dir), STATUS_APPROVED_PLAN, [str(tmp_path)])
 
     target = tmp_path / "sample.txt"
     target.write_text("old\n", encoding="utf-8")
@@ -78,6 +88,9 @@ def test_apply_succeeds_with_valid_contract(tmp_path: Path, monkeypatch) -> None
 
     run_id = "run_ok"
     init_run(run_id, {"story": "test"}, str(outputs_dir), [str(tmp_path)])
+    update_status(run_id, str(outputs_dir), STATUS_PLANNED, [str(tmp_path)])
+    update_status(run_id, str(outputs_dir), STATUS_WAITING_APPROVAL_PLAN, [str(tmp_path)])
+    update_status(run_id, str(outputs_dir), STATUS_APPROVED_PLAN, [str(tmp_path)])
     (run_dir / "change-request.md").write_text(
         """Objective: Apply patch safely
 Scope: Validate contract before apply
