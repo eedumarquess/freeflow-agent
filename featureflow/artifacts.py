@@ -80,10 +80,16 @@ PR_COMMENT_TEMPLATE = """# PR Comment
 
 def _write_file(path: Path, content: str, allowed_roots: list[str]) -> None:
     validate_write_path(path, allowed_roots)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
 
-def create_run_artifacts(run_id: str, outputs_dir: str, allowed_roots: list[str]) -> None:
+def create_run_artifacts(
+    run_id: str,
+    outputs_dir: str,
+    allowed_roots: list[str],
+    overwrite: bool = False,
+) -> None:
     run_dir = Path(outputs_dir) / run_id
     files = {
         run_dir / "change-request.md": CHANGE_REQUEST_TEMPLATE,
@@ -93,6 +99,8 @@ def create_run_artifacts(run_id: str, outputs_dir: str, allowed_roots: list[str]
         run_dir / "pr-comment.md": PR_COMMENT_TEMPLATE,
     }
     for path, content in files.items():
+        if path.exists() and not overwrite:
+            continue
         _write_file(path, content, allowed_roots)
 
 
