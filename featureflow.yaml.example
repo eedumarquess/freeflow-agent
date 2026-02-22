@@ -15,3 +15,15 @@ security:
     - "tests"
     - "web"
     - "cli"
+
+# Optional LLM integration for PLAN and PROPOSE_CHANGES.
+# llm:
+#   enabled: false
+#   provider: "openai"
+#   model: "gpt-4.1-mini"
+#   api_key_env: "OPENAI_API_KEY"
+#   timeout_seconds: 30
+#   temperature: 0
+#   max_repo_tree_entries: 250
+#   max_diff_chars: 12000
+#   max_key_file_chars: 6000

@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from featureflow.artifacts import append_command_logs_to_run_report, create_run_artifacts
-from featureflow.config import get_allowed_write_roots
+from featureflow.config import get_allowed_write_roots, get_llm_config
 from featureflow.contracts import validate_change_request
 from featureflow.fs_ops import apply_patch, configure_run_logging, inspect_patch_limits
 from featureflow.git_ops import ensure_agent_branch, get_current_diff, get_status_porcelain
+from featureflow.llm.service import generate_plan, generate_proposed_steps
 from featureflow.shell import run_command
 from featureflow.storage import (
     STATUS_FAILED,
@@ -61,6 +62,79 @@ def _format_scope_warning(limits: dict[str, Any]) -> str:
     for violation in limits.get("violations", []):
         lines.append(f"- Violation `{violation.get('rule', 'unknown')}`: {violation.get('message', '')}")
     return "\n".join(lines)
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _short_error(exc: Exception, max_len: int = 240) -> str:
+    message = f"{type(exc).__name__}: {exc}".replace("\n", " ").strip()
+    if len(message) <= max_len:
+        return message
+    return message[:max_len] + "..."
+
+
+def _build_llm_context(state: RunGraphState) -> dict[str, Any]:
+    return {
+        "repo_tree": state.context.repo_tree,
+        "key_files": state.context.key_files,
+        "current_diff": state.context.current_diff,
+        "branch": state.inputs.branch,
+        "base_branch": state.inputs.base_branch,
+    }
+
+
+def _deterministic_proposed_steps(state: RunGraphState) -> list[ProposedStep]:
+    guessed_file = "tests/"
+    if state.context.current_diff:
+        match = re.search(r"^\+\+\+ b/(.+)$", state.context.current_diff, flags=re.MULTILINE)
+        if match:
+            guessed_file = match.group(1)
+    return [
+        ProposedStep(
+            id="step-1",
+            file=guessed_file,
+            intent="implement-story-change",
+            reason="Deterministic MVP proposal derived from current context.",
+        )
+    ]
+
+
+def _path_in_allowed_roots(path: Path, ctx: NodeContext) -> bool:
+    for root in ctx.allowed_roots:
+        root_path = Path(root)
+        if not root_path.is_absolute():
+            root_path = ctx.repo_root / root_path
+        root_path = root_path.resolve(strict=False)
+        if path == root_path or _is_relative_to(path, root_path):
+            return True
+    return False
+
+
+def _sanitize_step_file(file_path: str, ctx: NodeContext) -> str | None:
+    raw = str(file_path or "")
+    if not raw or "\x00" in raw:
+        return None
+    normalized = raw.replace("\\", "/")
+    candidate_path = Path(normalized)
+    if candidate_path.is_absolute():
+        return None
+    parts = [part for part in normalized.split("/") if part not in ("", ".")]
+    if not parts or any(part == ".." for part in parts):
+        return None
+    rel_path = Path(*parts)
+    absolute_target = (ctx.repo_root / rel_path).resolve(strict=False)
+    if not _path_in_allowed_roots(absolute_target, ctx):
+        return None
+    repo_root = ctx.repo_root.resolve(strict=False)
+    if absolute_target != repo_root and not _is_relative_to(absolute_target, repo_root):
+        return None
+    return absolute_target.relative_to(repo_root).as_posix()
 
 
 def _list_repo_files(root: Path, max_entries: int = 250) -> list[str]:
@@ -139,10 +213,29 @@ def plan_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
     state.status_meta.last_node = "PLAN"
     state.status_meta.stage = "planned"
 
-    create_run_artifacts(state.run_id, ctx.outputs_dir, ctx.allowed_roots)
+    create_run_artifacts(state.run_id, ctx.outputs_dir, ctx.allowed_roots, overwrite=False)
     run_dir = _run_dir(state)
     change_request_path = run_dir / "change-request.md"
     test_plan_path = run_dir / "test-plan.md"
+    plan_source = "templates"
+    plan_note = "LLM disabled or story missing; using existing templates."
+
+    llm_cfg = get_llm_config(ctx.cfg)
+    if llm_cfg["enabled"] and state.inputs.story.strip():
+        try:
+            generated = generate_plan(
+                story=state.inputs.story,
+                context_dict=_build_llm_context(state),
+                cfg=ctx.cfg,
+            )
+            change_request_path.write_text(generated.change_request_md, encoding="utf-8")
+            test_plan_path.write_text(generated.test_plan_md, encoding="utf-8")
+            plan_source = "llm"
+            plan_note = "Plan artifacts generated from LLM."
+        except Exception as exc:
+            plan_source = "fallback"
+            plan_note = f"LLM plan generation failed; templates kept. {_short_error(exc)}"
+
     state.plan.change_request_md = _read_if_exists(change_request_path)
     state.plan.test_plan_md = _read_if_exists(test_plan_path)
 
@@ -152,7 +245,17 @@ def plan_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
             "pytest executed via allowlist",
         ]
     state.status_meta.message = "Plan artifacts are ready."
-    _append_markdown(Path(state.artifacts.run_report_path), "Node PLAN", "Plan artifacts synced into graph state.")
+    _append_markdown(
+        Path(state.artifacts.run_report_path),
+        "Node PLAN",
+        "\n".join(
+            [
+                f"- Source: `{plan_source}`",
+                f"- Detail: {plan_note}",
+                "- Plan artifacts synced into graph state.",
+            ]
+        ),
+    )
     _persist_state(state, ctx)
     return state.model_dump()
 
@@ -163,6 +266,8 @@ def propose_changes_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, An
     state.status_meta.stage = "changes_proposed"
 
     proposed: list[ProposedStep] = []
+    proposal_source = "fallback-deterministic"
+    proposal_note = "Deterministic fallback used."
     if state.edits.applied_files:
         for idx, file_path in enumerate(state.edits.applied_files, start=1):
             proposed.append(
@@ -173,20 +278,54 @@ def propose_changes_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, An
                     reason="Patch was already applied manually via python -m cli.main apply.",
                 )
             )
+        proposal_source = "manual"
+        proposal_note = "Manual patch already applied; reviewing changed files."
     else:
-        guessed_file = "tests/"
-        if state.context.current_diff:
-            match = re.search(r"^\+\+\+ b/(.+)$", state.context.current_diff, flags=re.MULTILINE)
-            if match:
-                guessed_file = match.group(1)
-        proposed.append(
-            ProposedStep(
-                id="step-1",
-                file=guessed_file,
-                intent="implement-story-change",
-                reason="Deterministic MVP proposal derived from current context.",
-            )
-        )
+        llm_cfg = get_llm_config(ctx.cfg)
+        if llm_cfg["enabled"]:
+            try:
+                generated = generate_proposed_steps(
+                    story=state.inputs.story,
+                    change_request_md=state.plan.change_request_md,
+                    test_plan_md=state.plan.test_plan_md,
+                    context_dict=_build_llm_context(state),
+                    cfg=ctx.cfg,
+                )
+                valid_steps: list[ProposedStep] = []
+                for idx, step in enumerate(generated.steps, start=1):
+                    sanitized_file = _sanitize_step_file(step.file, ctx)
+                    if not sanitized_file:
+                        continue
+                    step_id = step.id.strip() or f"step-{idx}"
+                    valid_steps.append(
+                        ProposedStep(
+                            id=step_id,
+                            file=sanitized_file,
+                            intent=step.intent,
+                            reason=step.reason,
+                        )
+                    )
+                if valid_steps:
+                    proposed = valid_steps
+                    proposal_source = "llm"
+                    proposal_note = f"LLM generated {len(valid_steps)} valid step(s)."
+                else:
+                    proposed = _deterministic_proposed_steps(state)
+                    proposal_source = "fallback-deterministic"
+                    proposal_note = "LLM returned no valid steps; deterministic fallback used."
+            except Exception as exc:
+                proposed = _deterministic_proposed_steps(state)
+                proposal_source = "fallback-deterministic"
+                proposal_note = f"LLM proposal failed; deterministic fallback used. {_short_error(exc)}"
+        else:
+            proposed = _deterministic_proposed_steps(state)
+            proposal_source = "fallback-deterministic"
+            proposal_note = "LLM disabled; deterministic fallback used."
+
+    if not proposed:
+        proposed = _deterministic_proposed_steps(state)
+        proposal_source = "fallback-deterministic"
+        proposal_note = "No proposal produced; deterministic fallback used."
 
     state.edits.proposed_steps = proposed
     state.edits.selected_step_id = proposed[0].id
@@ -194,7 +333,13 @@ def propose_changes_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, An
     _append_markdown(
         Path(state.artifacts.run_report_path),
         "Node PROPOSE_CHANGES",
-        "\n".join(f"- `{step.file}`: {step.intent}" for step in proposed),
+        "\n".join(
+            [
+                f"- Source: `{proposal_source}`",
+                f"- Detail: {proposal_note}",
+                *[f"- `{step.file}`: {step.intent}" for step in proposed],
+            ]
+        ),
     )
     _persist_state(state, ctx)
     return state.model_dump()
