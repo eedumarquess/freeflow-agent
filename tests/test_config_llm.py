@@ -67,6 +67,21 @@ def test_get_llm_config_ollama_no_key_required() -> None:
     assert cfg["api_key"] == ""
 
 
+def test_get_llm_config_ollama_default_base_url() -> None:
+    cfg = get_llm_config({"llm": {"provider": "ollama", "enabled": False, "base_url": ""}})
+    assert cfg["base_url"] == "http://localhost:11434"
+
+    cfg = get_llm_config({"llm": {"provider": "ollama", "enabled": False}})
+    assert cfg["base_url"] == "http://localhost:11434"
+
+
+def test_get_llm_config_ollama_base_url_from_config() -> None:
+    cfg = get_llm_config({
+        "llm": {"provider": "ollama", "enabled": False, "base_url": "http://custom:11434"},
+    })
+    assert cfg["base_url"] == "http://custom:11434"
+
+
 def test_get_llm_config_config_api_key_overrides_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "env-key")
     cfg = get_llm_config({"llm": {"provider": "openai", "enabled": False, "api_key": "config-key"}})

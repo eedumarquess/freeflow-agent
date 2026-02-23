@@ -52,6 +52,14 @@ export async function decideGate(
   return parseResponse<{ run: RunData; decision: "approved" | "rejected"; note?: string }>(response);
 }
 
+export async function runNext(runId: string): Promise<RunData> {
+  const response = await fetch(`${API_BASE}/runs/${runId}/next`, {
+    method: "POST",
+  });
+  const body = await parseResponse<{ run: RunData }>(response);
+  return body.run;
+}
+
 export async function getArtifact(runId: string, name: string): Promise<string> {
   const response = await fetch(`${API_BASE}/runs/${runId}/artifacts/${name}`);
   if (!response.ok) {
