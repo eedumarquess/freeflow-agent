@@ -128,12 +128,13 @@ security:
     - "web"
     - "cli"
 
-# Optional LLM integration
+# Optional LLM integration (used in PLAN and PROPOSE_CHANGES only)
 llm:
   enabled: true
-  provider: "openai"
+  provider: "openai"   # openai | anthropic | gemini | ollama
   model: "gpt-4.1-mini"
   api_key: "<your-key>"
+  base_url: ""         # Ollama only; default http://localhost:11434
   timeout_seconds: 30
   temperature: 0
   max_repo_tree_entries: 250
@@ -152,8 +153,11 @@ llm:
 | `security.allowed_commands` | Whitelist of executable commands | pytest, git |
 | `security.allowed_write_roots` | Directories allowed for writes | featureflow, tests, web, cli |
 | `llm.enabled` | Enable LLM integration | true |
-| `llm.provider` | LLM provider (openai) | openai |
+| `llm.provider` | LLM provider: openai, anthropic, gemini, ollama | openai |
 | `llm.model` | Model to use | gpt-4.1-mini |
+| `llm.base_url` | Ollama base URL (ignored by other providers) | "" (Ollama: http://localhost:11434) |
+
+**LLM auth / env (per provider):** `openai` → `OPENAI_API_KEY`; `anthropic` → `ANTHROPIC_API_KEY`; `gemini` → `GOOGLE_API_KEY` or `GEMINI_API_KEY`; `ollama` → no key required.
 
 ## Tech Stack
 
@@ -163,7 +167,7 @@ llm:
 - **Web Framework**: FastAPI 0.110+
 - **CLI**: Typer 0.12+
 - **Workflow Engine**: LangGraph 0.2+
-- **LLM Integration**: LangChain 0.3+, LangChain OpenAI 0.2+
+- **LLM Integration**: LangChain 0.3+, OpenAI / Anthropic / Gemini / Ollama (LangChain providers)
 - **Validation**: Pydantic 2.7+
 - **Testing**: Pytest 8.0+
 
@@ -180,7 +184,7 @@ free-flow-agent/
 ├── cli/                 # CLI commands (Typer)
 ├── featureflow/        # Core agent logic
 │   ├── workflow/        # LangGraph workflow (nodes, graph, engine, state)
-│   ├── llm/            # LLM integration (OpenAI/LangChain)
+│   ├── llm/            # LLM integration (OpenAI, Anthropic, Gemini, Ollama)
 │   ├── prompts/        # LLM prompt templates
 │   ├── config.py       # Configuration management
 │   ├── storage.py      # Run state persistence

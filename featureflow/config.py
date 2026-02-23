@@ -12,12 +12,31 @@ DEFAULT_LLM_CONFIG = {
     "provider": "openai",
     "model": "gpt-4.1-mini",
     "api_key": "",
+    "base_url": "",
     "timeout_seconds": 30,
     "temperature": 0.0,
     "max_repo_tree_entries": 250,
     "max_diff_chars": 12000,
     "max_key_file_chars": 6000,
 }
+
+SUPPORTED_LLM_PROVIDERS = ("openai", "anthropic", "gemini", "ollama")
+
+
+def _llm_api_key_from_env(provider: str, config_api_key: str) -> str:
+    """Provider-aware API key: config value or env fallback."""
+    key = (config_api_key or "").strip()
+    if key:
+        return key
+    if provider == "openai":
+        return os.getenv("OPENAI_API_KEY", "").strip()
+    if provider == "anthropic":
+        return os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if provider == "gemini":
+        return os.getenv("GOOGLE_API_KEY", "").strip() or os.getenv("GEMINI_API_KEY", "").strip()
+    if provider == "ollama":
+        return ""
+    return ""
 
 
 def get_project_root() -> Path:
@@ -78,11 +97,14 @@ def get_llm_config(cfg: dict[str, Any]) -> dict[str, Any]:
     merged = dict(DEFAULT_LLM_CONFIG)
     merged.update(llm_cfg_raw)
     merged["enabled"] = bool(merged.get("enabled", False))
-    merged["provider"] = str(merged.get("provider", DEFAULT_LLM_CONFIG["provider"])).strip() or DEFAULT_LLM_CONFIG[
-        "provider"
-    ]
+    merged["provider"] = (
+        str(merged.get("provider", DEFAULT_LLM_CONFIG["provider"])).strip().lower()
+        or DEFAULT_LLM_CONFIG["provider"]
+    )
     merged["model"] = str(merged.get("model", DEFAULT_LLM_CONFIG["model"])).strip() or DEFAULT_LLM_CONFIG["model"]
-    merged["api_key"] = str(merged.get("api_key", "") or os.getenv("OPENAI_API_KEY", "") or "").strip()
+    merged["base_url"] = str(merged.get("base_url", DEFAULT_LLM_CONFIG["base_url"]) or "").strip()
+    config_key = str(merged.get("api_key", "") or "").strip()
+    merged["api_key"] = _llm_api_key_from_env(merged["provider"], config_key)
     merged["timeout_seconds"] = max(1, _to_int(merged.get("timeout_seconds"), DEFAULT_LLM_CONFIG["timeout_seconds"]))
     merged["temperature"] = max(0.0, _to_float(merged.get("temperature"), DEFAULT_LLM_CONFIG["temperature"]))
     merged["max_repo_tree_entries"] = max(

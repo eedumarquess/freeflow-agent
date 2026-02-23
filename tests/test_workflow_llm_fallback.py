@@ -57,6 +57,8 @@ def test_plan_node_uses_llm_when_enabled(tmp_path: Path, monkeypatch) -> None:
 
     run_report = (outputs_dir / run_id / "run-report.md").read_text(encoding="utf-8")
     assert "Source: `llm`" in run_report
+    assert "provider:" in run_report
+    assert "model:" in run_report
 
 
 def test_plan_node_falls_back_when_llm_fails(tmp_path: Path, monkeypatch) -> None:
@@ -142,3 +144,5 @@ def test_propose_changes_uses_llm_steps_when_valid(tmp_path: Path, monkeypatch) 
 
     run_report = (outputs_dir / run_id / "run-report.md").read_text(encoding="utf-8")
     assert "Source: `llm`" in run_report
+    assert "provider:" in run_report
+    assert "model:" in run_report

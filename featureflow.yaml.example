@@ -16,14 +16,22 @@ security:
     - "web"
     - "cli"
 
-# Optional LLM integration for PLAN and PROPOSE_CHANGES.
+# Optional LLM integration for PLAN and PROPOSE_CHANGES only.
+# Supported providers: openai | anthropic | gemini | ollama
 # llm:
 #   enabled: false
 #   provider: "openai"
 #   model: "gpt-4.1-mini"
-#   api_key: ""  # sua chave OpenAI
+#   api_key: ""   # or set OPENAI_API_KEY
+#   base_url: ""  # used by Ollama (default http://localhost:11434); ignored by others
 #   timeout_seconds: 30
 #   temperature: 0
 #   max_repo_tree_entries: 250
 #   max_diff_chars: 12000
 #   max_key_file_chars: 6000
+#
+# Per-provider auth/env:
+#   openai:    llm.api_key or OPENAI_API_KEY
+#   anthropic: llm.api_key or ANTHROPIC_API_KEY
+#   gemini:    llm.api_key or GOOGLE_API_KEY or GEMINI_API_KEY
+#   ollama:    no key required; base_url defaults to http://localhost:11434

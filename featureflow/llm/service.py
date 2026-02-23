@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from pydantic import ValidationError
 
-from featureflow.config import get_llm_config
+from featureflow.config import SUPPORTED_LLM_PROVIDERS, get_llm_config
 
 from .models import PlannerOutput, ProposerOutput
 
@@ -104,33 +104,121 @@ def _response_to_text(response: Any) -> str:
     return str(content)
 
 
+def _system_instruction() -> str:
+    return "Return only valid JSON with no extra text."
+
+
+def _build_messages(prompt: str, input_payload: dict[str, Any]) -> list:
+    """Build [system, human] messages for any provider (LangChain message types)."""
+    request_json = json.dumps(input_payload, ensure_ascii=True, indent=2)
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+    except Exception as exc:
+        raise LLMServiceError("langchain_core messages not available") from exc
+    return [
+        SystemMessage(content=_system_instruction()),
+        HumanMessage(content=f"{prompt}\n\nInput JSON:\n{request_json}"),
+    ]
+
+
 def _invoke_openai(prompt: str, input_payload: dict[str, Any], llm_cfg: dict[str, Any]) -> str:
     api_key = str(llm_cfg.get("api_key") or "").strip()
     if not api_key:
-        raise LLMServiceError("Missing API key: set llm.api_key in featureflow.yaml")
+        raise LLMServiceError("Missing API key: set llm.api_key or OPENAI_API_KEY")
 
     try:
-        from langchain_core.messages import HumanMessage, SystemMessage
         from langchain_openai import ChatOpenAI
-    except Exception as exc:  # pragma: no cover - depends on runtime environment
+    except Exception as exc:
         raise LLMServiceError("langchain-openai is not available") from exc
 
     model_name = str(llm_cfg.get("model", "gpt-4.1-mini"))
     timeout_seconds = int(llm_cfg.get("timeout_seconds", 30))
     temperature = float(llm_cfg.get("temperature", 0.0))
-    request_json = json.dumps(input_payload, ensure_ascii=True, indent=2)
-    messages = [
-        SystemMessage(content="Return only valid JSON with no extra text."),
-        HumanMessage(content=f"{prompt}\n\nInput JSON:\n{request_json}"),
-    ]
     client = ChatOpenAI(
         model=model_name,
         temperature=temperature,
         timeout=timeout_seconds,
         api_key=api_key,
     )
-    response = client.invoke(messages)
+    response = client.invoke(_build_messages(prompt, input_payload))
     return _response_to_text(response)
+
+
+def _invoke_anthropic(prompt: str, input_payload: dict[str, Any], llm_cfg: dict[str, Any]) -> str:
+    api_key = str(llm_cfg.get("api_key") or "").strip()
+    if not api_key:
+        raise LLMServiceError("Missing API key: set llm.api_key or ANTHROPIC_API_KEY")
+
+    try:
+        from langchain_anthropic import ChatAnthropic
+    except Exception as exc:
+        raise LLMServiceError("langchain-anthropic is not available") from exc
+
+    model_name = str(llm_cfg.get("model", "claude-3-5-haiku-20241022"))
+    timeout_seconds = int(llm_cfg.get("timeout_seconds", 30))
+    temperature = float(llm_cfg.get("temperature", 0.0))
+    client = ChatAnthropic(
+        model=model_name,
+        temperature=temperature,
+        timeout=timeout_seconds,
+        api_key=api_key,
+    )
+    response = client.invoke(_build_messages(prompt, input_payload))
+    return _response_to_text(response)
+
+
+def _invoke_gemini(prompt: str, input_payload: dict[str, Any], llm_cfg: dict[str, Any]) -> str:
+    api_key = str(llm_cfg.get("api_key") or "").strip()
+    if not api_key:
+        raise LLMServiceError("Missing API key: set llm.api_key or GOOGLE_API_KEY / GEMINI_API_KEY")
+
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+    except Exception as exc:
+        raise LLMServiceError("langchain-google-genai is not available") from exc
+
+    model_name = str(llm_cfg.get("model", "gemini-2.0-flash"))
+    timeout_seconds = int(llm_cfg.get("timeout_seconds", 30))
+    temperature = float(llm_cfg.get("temperature", 0.0))
+    client = ChatGoogleGenerativeAI(
+        model=model_name,
+        temperature=temperature,
+        timeout=timeout_seconds,
+        api_key=api_key,
+    )
+    response = client.invoke(_build_messages(prompt, input_payload))
+    return _response_to_text(response)
+
+
+def _invoke_ollama(prompt: str, input_payload: dict[str, Any], llm_cfg: dict[str, Any]) -> str:
+    base_url = str(llm_cfg.get("base_url") or "").strip()
+    if not base_url:
+        base_url = "http://localhost:11434"
+
+    try:
+        from langchain_ollama import ChatOllama
+    except Exception as exc:
+        raise LLMServiceError("langchain-ollama is not available") from exc
+
+    model_name = str(llm_cfg.get("model", "llama3.2"))
+    timeout_seconds = int(llm_cfg.get("timeout_seconds", 30))
+    temperature = float(llm_cfg.get("temperature", 0.0))
+    client = ChatOllama(
+        model=model_name,
+        temperature=temperature,
+        base_url=base_url,
+        timeout=timeout_seconds,
+    )
+    response = client.invoke(_build_messages(prompt, input_payload))
+    return _response_to_text(response)
+
+
+_PROVIDER_INVOKERS: dict[str, Callable[..., str]] = {
+    "openai": _invoke_openai,
+    "anthropic": _invoke_anthropic,
+    "gemini": _invoke_gemini,
+    "ollama": _invoke_ollama,
+}
 
 
 def _invoke_llm(prompt_name: str, input_payload: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
@@ -139,11 +227,15 @@ def _invoke_llm(prompt_name: str, input_payload: dict[str, Any], cfg: dict[str, 
         raise LLMServiceError("LLM is disabled")
 
     provider = str(llm_cfg.get("provider", "openai")).strip().lower()
-    if provider != "openai":
+    if provider not in SUPPORTED_LLM_PROVIDERS:
+        raise LLMServiceError(f"Unsupported LLM provider: {provider}")
+
+    invoker = _PROVIDER_INVOKERS.get(provider)
+    if not invoker:
         raise LLMServiceError(f"Unsupported LLM provider: {provider}")
 
     prompt = _read_prompt(prompt_name)
-    raw = _invoke_openai(prompt, input_payload, llm_cfg)
+    raw = invoker(prompt, input_payload, llm_cfg)
     return _parse_json_object(raw)
 
 
