@@ -6,7 +6,7 @@ import { DiffViewer } from "../components/DiffViewer";
 import { GateActions } from "../components/GateActions";
 import { GraphView } from "../components/GraphView";
 import { StatusBadge } from "../components/StatusBadge";
-import { decideGate, getRun, getRunGraph, getRunMetrics } from "../lib/api";
+import { decideGate, getRun, getRunGraph, getRunMetrics, runNext } from "../lib/api";
 import type { Gate, RunData, RunGraph, RunMetrics } from "../types";
 
 function formatDuration(seconds: number | null | undefined): string {
@@ -23,6 +23,7 @@ export function RunDetailPage(): JSX.Element {
   const [metrics, setMetrics] = useState<RunMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [decisionLoading, setDecisionLoading] = useState(false);
+  const [nextLoading, setNextLoading] = useState(false);
   const [error, setError] = useState("");
   const [decisionMessage, setDecisionMessage] = useState("");
 
@@ -67,6 +68,19 @@ export function RunDetailPage(): JSX.Element {
     [loadData, runId],
   );
 
+  const onNext = useCallback(async () => {
+    setNextLoading(true);
+    setError("");
+    try {
+      await runNext(runId);
+      await loadData();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setNextLoading(false);
+    }
+  }, [loadData, runId]);
+
   if (loading) {
     return <p className="page">Loading run details...</p>;
   }
@@ -89,8 +103,21 @@ export function RunDetailPage(): JSX.Element {
     );
   }
 
-  const pendingGate = run.approvals_state?.pending_gate ?? null;
+  // If status already passed this gate, don't show it as pending (avoids double-approve)
+  const rawPending = run.approvals_state?.pending_gate ?? null;
+  const pendingGate =
+    rawPending === "plan" && run.status === "APPROVED_PLAN"
+      ? null
+      : rawPending === "patch" && run.status === "APPROVED_PATCH"
+        ? null
+        : rawPending === "final" && run.status === "FINALIZED"
+          ? null
+          : rawPending;
   const diffText = run.context?.current_diff || run.edits?.patch_text || "";
+  const canContinue =
+    !pendingGate &&
+    run.status !== "FINALIZED" &&
+    run.status !== "FAILED";
 
   return (
     <main className="page">
@@ -114,6 +141,20 @@ export function RunDetailPage(): JSX.Element {
       {decisionMessage && <p className="success">{decisionMessage}</p>}
 
       <GateActions pendingGate={pendingGate} loading={decisionLoading} onDecision={onDecision} />
+
+      {canContinue && (
+        <section className="card">
+          <h3>Continuar processo</h3>
+          <p>Avance o workflow até a próxima pausa ou fim. Pode demorar vários minutos.</p>
+          <button
+            type="button"
+            disabled={nextLoading}
+            onClick={() => void onNext()}
+          >
+            {nextLoading ? "Executando…" : "Continuar"}
+          </button>
+        </section>
+      )}
 
       <section className="card">
         <h3>Metrics</h3>
