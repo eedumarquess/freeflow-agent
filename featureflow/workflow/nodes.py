@@ -231,7 +231,10 @@ def plan_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
             change_request_path.write_text(generated.change_request_md, encoding="utf-8")
             test_plan_path.write_text(generated.test_plan_md, encoding="utf-8")
             plan_source = "llm"
-            plan_note = "Plan artifacts generated from LLM."
+            plan_note = (
+                f"Plan artifacts generated from LLM (provider: {llm_cfg.get('provider', 'openai')}, "
+                f"model: {llm_cfg.get('model', '')})."
+            )
         except Exception as exc:
             plan_source = "fallback"
             plan_note = f"LLM plan generation failed; templates kept. {_short_error(exc)}"
@@ -308,7 +311,10 @@ def propose_changes_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, An
                 if valid_steps:
                     proposed = valid_steps
                     proposal_source = "llm"
-                    proposal_note = f"LLM generated {len(valid_steps)} valid step(s)."
+                    proposal_note = (
+                        f"LLM generated {len(valid_steps)} valid step(s) "
+                        f"(provider: {llm_cfg.get('provider', 'openai')}, model: {llm_cfg.get('model', '')})."
+                    )
                 else:
                     proposed = _deterministic_proposed_steps(state)
                     proposal_source = "fallback-deterministic"
