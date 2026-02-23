@@ -1,4 +1,4 @@
-﻿project:
+project:
   base_branch: "master"
 runs:
   outputs_dir: "outputs/runs"
@@ -21,7 +21,7 @@ security:
 #   enabled: false
 #   provider: "openai"
 #   model: "gpt-4.1-mini"
-#   api_key_env: "OPENAI_API_KEY"
+#   api_key: ""  # sua chave OpenAI
 #   timeout_seconds: 30
 #   temperature: 0
 #   max_repo_tree_entries: 250

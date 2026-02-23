@@ -11,7 +11,7 @@ DEFAULT_LLM_CONFIG = {
     "enabled": False,
     "provider": "openai",
     "model": "gpt-4.1-mini",
-    "api_key_env": "OPENAI_API_KEY",
+    "api_key": "",
     "timeout_seconds": 30,
     "temperature": 0.0,
     "max_repo_tree_entries": 250,
@@ -82,10 +82,7 @@ def get_llm_config(cfg: dict[str, Any]) -> dict[str, Any]:
         "provider"
     ]
     merged["model"] = str(merged.get("model", DEFAULT_LLM_CONFIG["model"])).strip() or DEFAULT_LLM_CONFIG["model"]
-    merged["api_key_env"] = (
-        str(merged.get("api_key_env", DEFAULT_LLM_CONFIG["api_key_env"])).strip()
-        or DEFAULT_LLM_CONFIG["api_key_env"]
-    )
+    merged["api_key"] = str(merged.get("api_key", "") or os.getenv("OPENAI_API_KEY", "") or "").strip()
     merged["timeout_seconds"] = max(1, _to_int(merged.get("timeout_seconds"), DEFAULT_LLM_CONFIG["timeout_seconds"]))
     merged["temperature"] = max(0.0, _to_float(merged.get("temperature"), DEFAULT_LLM_CONFIG["temperature"]))
     merged["max_repo_tree_entries"] = max(

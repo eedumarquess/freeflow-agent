@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -106,10 +105,9 @@ def _response_to_text(response: Any) -> str:
 
 
 def _invoke_openai(prompt: str, input_payload: dict[str, Any], llm_cfg: dict[str, Any]) -> str:
-    api_key_env = str(llm_cfg.get("api_key_env", "OPENAI_API_KEY"))
-    api_key = os.getenv(api_key_env, "").strip()
+    api_key = str(llm_cfg.get("api_key") or "").strip()
     if not api_key:
-        raise LLMServiceError(f"Missing API key in env var: {api_key_env}")
+        raise LLMServiceError("Missing API key: set llm.api_key in featureflow.yaml")
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage

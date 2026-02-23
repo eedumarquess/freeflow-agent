@@ -13,7 +13,7 @@ def _cfg(enabled: bool = True) -> dict:
             "enabled": enabled,
             "provider": "openai",
             "model": "gpt-4.1-mini",
-            "api_key_env": "OPENAI_API_KEY",
+            "api_key": "test-key",
             "timeout_seconds": 30,
             "temperature": 0,
             "max_repo_tree_entries": 10,
@@ -70,14 +70,13 @@ def test_generate_proposed_steps_validates_schema(monkeypatch: pytest.MonkeyPatc
     assert output.steps[0].file == "featureflow/workflow/nodes.py"
 
 
-def test_invoke_openai_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("FEATUREFLOW_TEST_MISSING_KEY", raising=False)
+def test_invoke_openai_requires_api_key() -> None:
     with pytest.raises(llm_service.LLMServiceError, match="Missing API key"):
         llm_service._invoke_openai(
             "prompt",
             {"story": "x"},
             {
-                "api_key_env": "FEATUREFLOW_TEST_MISSING_KEY",
+                "api_key": "",
                 "model": "gpt-4.1-mini",
                 "timeout_seconds": 30,
                 "temperature": 0,

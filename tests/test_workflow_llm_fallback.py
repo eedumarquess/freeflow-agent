@@ -22,7 +22,7 @@ def _cfg(outputs_dir: Path, allowed_root: Path) -> dict:
             "enabled": True,
             "provider": "openai",
             "model": "gpt-4.1-mini",
-            "api_key_env": "OPENAI_API_KEY",
+            "api_key": "test-key",
             "timeout_seconds": 30,
             "temperature": 0,
             "max_repo_tree_entries": 50,
