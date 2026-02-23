@@ -10,11 +10,18 @@ from pydantic import BaseModel
 
 from featureflow.telemetry import compute_metrics, write_metrics_json
 from featureflow.storage import (
+    STATUS_APPROVED_PATCH,
+    STATUS_APPROVED_PLAN,
     STATUS_FAILED,
+    STATUS_FINALIZED,
+    STATUS_WAITING_APPROVAL_FINAL,
+    STATUS_WAITING_APPROVAL_PATCH,
+    STATUS_WAITING_APPROVAL_PLAN,
     approve_gate,
     read_run,
     reject_gate,
 )
+from featureflow.workflow.engine import advance_until_pause_or_end
 from featureflow.workflow.graph import NODE_NAMES, route_from_status
 
 app = FastAPI()
@@ -63,6 +70,15 @@ def _normalize_run_payload(data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(approvals_state, dict):
         approvals_state = {}
     approvals_state.setdefault("pending_gate", None)
+    # Normalize inconsistent state: if status already passed this gate, clear pending_gate
+    status = str(normalized.get("status", ""))
+    pg = approvals_state.get("pending_gate")
+    if pg == "plan" and status == STATUS_APPROVED_PLAN:
+        approvals_state["pending_gate"] = None
+    elif pg == "patch" and status == STATUS_APPROVED_PATCH:
+        approvals_state["pending_gate"] = None
+    elif pg == "final" and status == STATUS_FINALIZED:
+        approvals_state["pending_gate"] = None
     normalized["approvals_state"] = approvals_state
 
     status_meta = normalized.get("status_meta")
@@ -210,6 +226,36 @@ def approve_run_gate(run_id: str, payload: ApproveRequest) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail=message) from exc
 
     return {"run": _normalize_run_payload(run_data), "note": payload.note, "decision": decision}
+
+
+@app.post("/runs/{run_id}/next")
+def run_next(run_id: str) -> dict[str, Any]:
+    """Advance the run via the workflow graph until the next pause or terminal status."""
+    runs_dir = _runs_dir()
+    try:
+        run_data = read_run(run_id, str(runs_dir))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+    status = str(run_data.get("status", ""))
+    if status in (
+        STATUS_WAITING_APPROVAL_PLAN,
+        STATUS_WAITING_APPROVAL_PATCH,
+        STATUS_WAITING_APPROVAL_FINAL,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Approve the pending gate first.",
+        ) from None
+    if status in (STATUS_FAILED, STATUS_FINALIZED):
+        raise HTTPException(
+            status_code=409,
+            detail="No next step (run is failed or finalized).",
+        ) from None
+
+    advance_until_pause_or_end(run_id)
+    merged = read_run(run_id, str(runs_dir))
+    return {"run": _normalize_run_payload(merged)}
 
 
 @app.get("/runs/{run_id}/graph")
