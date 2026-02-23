@@ -7,8 +7,11 @@ from fastapi.testclient import TestClient
 from featureflow.artifacts import create_run_artifacts
 import featureflow.storage as storage
 from featureflow.storage import (
+    STATUS_APPROVED_PLAN,
     STATUS_FAILED,
+    STATUS_FINALIZED,
     STATUS_PLANNED,
+    STATUS_WAITING_APPROVAL_PATCH,
     STATUS_WAITING_APPROVAL_PLAN,
     append_command,
     init_run,
@@ -346,3 +349,92 @@ def test_get_run_metrics_returns_payload_and_exports_file(tmp_path: Path, monkey
     assert payload["nodes"]
     assert all(node["total_duration_sec"] is None for node in payload["nodes"])
     assert (runs_dir / run_id / "metrics.json").exists()
+
+
+def test_post_next_returns_404_when_run_missing(tmp_path: Path, monkeypatch) -> None:
+    runs_dir = tmp_path / "outputs" / "runs"
+    _set_runs_dir(monkeypatch, runs_dir)
+    client = TestClient(app)
+
+    response = client.post("/runs/missing_run/next")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Run not found"
+
+
+def test_post_next_returns_409_when_waiting_approval(tmp_path: Path, monkeypatch) -> None:
+    runs_dir = tmp_path / "outputs" / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_next_waiting"
+    init_run(run_id, {"story": "next"}, str(runs_dir), [str(tmp_path)])
+    update_status(run_id, str(runs_dir), STATUS_PLANNED, [str(tmp_path)])
+    update_status(run_id, str(runs_dir), STATUS_WAITING_APPROVAL_PLAN, [str(tmp_path)])
+    _set_runs_dir(monkeypatch, runs_dir)
+    client = TestClient(app)
+
+    response = client.post(f"/runs/{run_id}/next")
+
+    assert response.status_code == 409
+    assert "Approve the pending gate first" in response.json()["detail"]
+
+
+def test_post_next_returns_409_when_failed(tmp_path: Path, monkeypatch) -> None:
+    runs_dir = tmp_path / "outputs" / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_next_failed"
+    init_run(run_id, {"story": "next"}, str(runs_dir), [str(tmp_path)])
+    data = read_run(run_id, str(runs_dir))
+    data["status"] = STATUS_FAILED
+    write_run(run_id, str(runs_dir), data, [str(tmp_path)])
+    _set_runs_dir(monkeypatch, runs_dir)
+    client = TestClient(app)
+
+    response = client.post(f"/runs/{run_id}/next")
+
+    assert response.status_code == 409
+    assert "failed or finalized" in response.json()["detail"]
+
+
+def test_post_next_returns_409_when_finalized(tmp_path: Path, monkeypatch) -> None:
+    runs_dir = tmp_path / "outputs" / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_next_finalized"
+    init_run(run_id, {"story": "next"}, str(runs_dir), [str(tmp_path)])
+    data = read_run(run_id, str(runs_dir))
+    data["status"] = STATUS_FINALIZED
+    write_run(run_id, str(runs_dir), data, [str(tmp_path)])
+    _set_runs_dir(monkeypatch, runs_dir)
+    client = TestClient(app)
+
+    response = client.post(f"/runs/{run_id}/next")
+
+    assert response.status_code == 409
+    assert "failed or finalized" in response.json()["detail"]
+
+
+def test_post_next_success_returns_updated_run(tmp_path: Path, monkeypatch) -> None:
+    runs_dir = tmp_path / "outputs" / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_next_ok"
+    init_run(run_id, {"story": "next"}, str(runs_dir), [str(tmp_path)])
+    data = read_run(run_id, str(runs_dir))
+    data["status"] = STATUS_APPROVED_PLAN
+    write_run(run_id, str(runs_dir), data, [str(tmp_path)])
+    _set_runs_dir(monkeypatch, runs_dir)
+
+    def _mock_advance(run_id: str, **kwargs: object) -> None:
+        data = read_run(run_id, str(runs_dir))
+        data["status"] = STATUS_WAITING_APPROVAL_PATCH
+        data["approvals_state"] = {"pending_gate": "patch"}
+        write_run(run_id, str(runs_dir), data, [str(tmp_path)])
+
+    monkeypatch.setattr("web.api.advance_until_pause_or_end", _mock_advance)
+    client = TestClient(app)
+
+    response = client.post(f"/runs/{run_id}/next")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["run"]["run_id"] == run_id
+    assert body["run"]["status"] == STATUS_WAITING_APPROVAL_PATCH
+    assert body["run"]["approvals_state"].get("pending_gate") == "patch"
