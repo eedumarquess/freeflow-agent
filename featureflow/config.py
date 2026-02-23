@@ -103,6 +103,8 @@ def get_llm_config(cfg: dict[str, Any]) -> dict[str, Any]:
     )
     merged["model"] = str(merged.get("model", DEFAULT_LLM_CONFIG["model"])).strip() or DEFAULT_LLM_CONFIG["model"]
     merged["base_url"] = str(merged.get("base_url", DEFAULT_LLM_CONFIG["base_url"]) or "").strip()
+    if merged["provider"] == "ollama" and not merged["base_url"]:
+        merged["base_url"] = "http://localhost:11434"
     config_key = str(merged.get("api_key", "") or "").strip()
     merged["api_key"] = _llm_api_key_from_env(merged["provider"], config_key)
     merged["timeout_seconds"] = max(1, _to_int(merged.get("timeout_seconds"), DEFAULT_LLM_CONFIG["timeout_seconds"]))
