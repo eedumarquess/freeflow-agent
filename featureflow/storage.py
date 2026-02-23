@@ -215,6 +215,11 @@ def approve_gate(
     )
     data["approvals"] = approvals
     data["status"] = next_status.value
+    approvals_state = data.get("approvals_state")
+    if not isinstance(approvals_state, dict):
+        approvals_state = {}
+    approvals_state["pending_gate"] = None
+    data["approvals_state"] = approvals_state
     write_run(run_id, outputs_dir, data, allowed_roots)
     return data
 
@@ -262,5 +267,10 @@ def reject_gate(
     status_meta["ok"] = False
     status_meta["message"] = f"Rejected at gate '{gate}'."
     data["status_meta"] = status_meta
+    approvals_state = data.get("approvals_state")
+    if not isinstance(approvals_state, dict):
+        approvals_state = {}
+    approvals_state["pending_gate"] = None
+    data["approvals_state"] = approvals_state
     write_run(run_id, outputs_dir, data, allowed_roots)
     return data
