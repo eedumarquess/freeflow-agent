@@ -23,6 +23,43 @@ body {
   margin-bottom: 14px;
 }
 
+.card-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.card-row .card {
+  margin-bottom: 0;
+}
+
+.command-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.command-list li {
+  margin-bottom: 8px;
+}
+
+.command-list li:last-child {
+  margin-bottom: 0;
+}
+
+.command-block {
+  display: block;
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
+  font-size: 0.9rem;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -61,6 +98,16 @@ button {
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+button.btn-primary {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
+button.btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
 }
 
 button.danger {
@@ -141,39 +188,110 @@ button.danger {
   background: #f8fbff;
   padding: 10px;
   overflow-x: auto;
-  white-space: pre-wrap;
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
+  white-space: pre;
+  line-height: 1.5;
 }
 
-.graph-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+.diff-line {
+  white-space: pre;
+}
+
+.diff-line--header {
+  background: #e8eef5;
+  color: #475569;
+}
+
+.diff-line--remove {
+  background: #fef2f2;
+}
+
+.diff-line--add {
+  background: #f0fdf4;
+}
+
+.diff-line--context {
+  /* fundo igual ao container */
+}
+
+/* Workflow diagram: tabela 3x3 + última linha com 2 nós (50% cada) */
+.workflow-grid {
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px 16px;
+  margin-top: 8px;
+  max-width: 100%;
 }
 
-.graph-node {
-  border: 1px solid #e4e9f0;
-  border-radius: 8px;
-  padding: 8px 10px;
+.workflow-grid-cell {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  grid-column: span 2;
+  position: relative;
 }
 
-.graph-done {
-  background: #e8f6ec;
+.workflow-grid-cell--last-row {
+  grid-column: span 3;
 }
 
-.graph-current {
-  background: #fff2d9;
+.workflow-grid-cell--has-next .workflow-cell-arrow {
+  display: block;
 }
 
-.graph-pending {
-  background: #f2f5fa;
+.workflow-cell-arrow {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9ca3af;
+  pointer-events: none;
 }
 
-.graph-blocked {
-  background: #ffe8e9;
+.workflow-grid-cell--empty {
+  min-height: 0;
+}
+
+.workflow-node {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.workflow-node--done {
+  background: #16a34a;
+  color: #fff;
+}
+
+.workflow-node--blocked {
+  background: #dc2626;
+  color: #fff;
+}
+
+.workflow-node--current {
+  background: #eab308;
+  color: #1f2937;
+}
+
+.workflow-node--pending {
+  background: #9ca3af;
+  color: #fff;
+}
+
+.workflow-node-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.2;
+  color: #374151;
+  white-space: nowrap;
 }
 
 .error {
