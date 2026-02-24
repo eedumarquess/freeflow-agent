@@ -16,6 +16,25 @@ function formatDuration(seconds: number | null | undefined): string {
   return `${seconds.toFixed(2)}s`;
 }
 
+function formatIsoDate(iso: string | null | undefined): string {
+  if (!iso) return "-";
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString("pt-BR", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZoneName: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export function RunDetailPage(): JSX.Element {
   const { runId = "" } = useParams();
   const [run, setRun] = useState<RunData | null>(null);
@@ -131,11 +150,32 @@ export function RunDetailPage(): JSX.Element {
 
       <section className="card">
         <h3>Metadata</h3>
-        <p>Created: {run.created_at ?? "-"}</p>
-        <p>Updated: {run.updated_at ?? "-"}</p>
-        <p>Last node: {run.status_meta?.last_node ?? "-"}</p>
-        <p>Message: {run.status_meta?.message ?? "-"}</p>
-        {run.failure_reason && <p className="error">Failure: {run.failure_reason}</p>}
+        <table>
+          <tbody>
+            <tr>
+              <th scope="row">Created</th>
+              <td>{formatIsoDate(run.created_at)}</td>
+            </tr>
+            <tr>
+              <th scope="row">Updated</th>
+              <td>{formatIsoDate(run.updated_at)}</td>
+            </tr>
+            <tr>
+              <th scope="row">Last node</th>
+              <td>{run.status_meta?.last_node ?? "-"}</td>
+            </tr>
+            <tr>
+              <th scope="row">Message</th>
+              <td>{run.status_meta?.message ?? "-"}</td>
+            </tr>
+            {run.failure_reason && (
+              <tr>
+                <th scope="row" className="error">Failure</th>
+                <td className="error">{run.failure_reason}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </section>
 
       {decisionMessage && <p className="success">{decisionMessage}</p>}
@@ -190,30 +230,51 @@ export function RunDetailPage(): JSX.Element {
         </table>
       </section>
 
-      <section className="card">
-        <h3>Approvals</h3>
-        <ul>
-          {(run.approvals ?? []).map((approval, idx) => (
-            <li key={`${approval.approved_at}-${idx}`}>
-              {approval.gate} - {approval.approved === false ? "rejected" : "approved"} - {approval.approver}
-            </li>
-          ))}
-          {!run.approvals?.length && <li>No approval records.</li>}
-        </ul>
-      </section>
+      <div className="card-row">
+        <section className="card">
+          <h3>Approvals</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Gate</th>
+                <th>Status</th>
+                <th>Approver</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(run.approvals ?? []).map((approval, idx) => (
+                <tr key={`${approval.approved_at}-${idx}`}>
+                  <td>{approval.gate}</td>
+                  <td>{approval.approved === false ? "rejected" : "approved"}</td>
+                  <td>{approval.approver}</td>
+                </tr>
+              ))}
+              {!run.approvals?.length && (
+                <tr>
+                  <td colSpan={3}>No approval records.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </section>
 
-      <section className="card">
-        <h3>Commands</h3>
-        <ul>
-          {(run.commands ?? []).map((cmd, idx) => (
-            <li key={idx}>
-              exit={cmd.exit_code ?? "-"} -{" "}
-              {Array.isArray(cmd.command) ? cmd.command.join(" ") : (cmd.command ?? "(unknown)")}
-            </li>
-          ))}
-          {!run.commands?.length && <li>No command execution records.</li>}
-        </ul>
-      </section>
+        <section className="card">
+          <h3>Commands</h3>
+          <ul className="command-list">
+            {(run.commands ?? []).map((cmd, idx) => {
+              const cmdStr = Array.isArray(cmd.command) ? cmd.command.join(" ") : (cmd.command ?? "(unknown)");
+              return (
+                <li key={idx}>
+                  <code className="command-block">
+                    exit={cmd.exit_code ?? "-"} — {cmdStr}
+                  </code>
+                </li>
+              );
+            })}
+            {!run.commands?.length && <li>No command execution records.</li>}
+          </ul>
+        </section>
+      </div>
 
       <ArtifactsPanel runId={run.run_id} />
       <DiffViewer diffText={diffText} />
