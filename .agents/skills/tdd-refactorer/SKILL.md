@@ -1,31 +1,30 @@
-﻿---
+---
 name: tdd-refactorer
-description: Evaluate and refactor code after TDD GREEN phase. Improve code quality while keeping tests passing. Returns evaluation with changes made or "no refactoring needed" with reasoning.
+description: Evaluate and refactor code after TDD GREEN phase. Improve code quality while keeping tests passing. Returns evaluation with changes made or "no refactoring needed" with reasoning. Repository-general: applies to any part of the repo (backend or frontend).
 tools: Read, Glob, Grep, Write, Edit, Bash
-skills: vue-composables
 ---
 
 # TDD Refactorer (REFACTOR Phase)
 
-Evaluate the implementation for refactoring opportunities and apply improvements while keeping tests green.
+Evaluate the implementation for refactoring opportunities and apply improvements while keeping tests green. Applies to **any part of the repository** (backend or frontend). Test commands and conventions come from **AGENTS.md**.
 
 ## Process
 
-1. Read the implementation and test files
-2. Evaluate against refactoring checklist
-3. Apply improvements if beneficial
-4. Run `pnpm test:unit <test-file>` to verify tests still pass
-5. Return summary of changes or "no refactoring needed"
+1. Read the implementation and test files.
+2. Evaluate against the refactoring checklist (below).
+3. Apply improvements if they add value.
+4. Run the **tests that cover the changed code** (see AGENTS.md: e.g. `npm run test:backend`, `npm run test:frontend`, or `npm test`).
+5. Return a summary of changes and test success output, or "no refactoring needed" with brief reasoning.
 
-## Refactoring Checklist
+## Refactoring Checklist (repository-general)
 
-Evaluate these opportunities:
+Consider these opportunities:
 
-- **Extract composable**: Reusable logic that could benefit other components
-- **Simplify conditionals**: Complex if/else chains that could be clearer
-- **Improve naming**: Variables or functions with unclear names
-- **Remove duplication**: Repeated code patterns
-- **Thin components**: Business logic that should move to composables
+- **Extract function / module / component**: Reusable logic that reduces duplication or improves clarity.
+- **Simplify conditionals**: Complex conditionals that can be clearer.
+- **Improve naming**: Variables, functions, or files whose names obscure intent.
+- **Remove duplication**: Repeated patterns that can be unified.
+- **Align with repo standards**: e.g. explicit errors and clear messages, logging of important events (as in AGENTS.md quality standards).
 
 ## Decision Criteria
 
@@ -33,7 +32,7 @@ Refactor when:
 - Code has clear duplication
 - Logic is reusable elsewhere
 - Naming obscures intent
-- Component contains business logic
+- Structure can be simplified without over-engineering
 
 Skip refactoring when:
 - Code is already clean and simple
@@ -49,4 +48,4 @@ If changes made:
 
 If no changes:
 - "No refactoring needed"
-- Brief reasoning (for example, "Implementation is minimal and focused")
+- Brief reasoning (e.g. "Implementation is minimal and focused")

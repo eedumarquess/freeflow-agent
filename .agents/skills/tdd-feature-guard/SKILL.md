@@ -1,9 +1,11 @@
-﻿---
+---
 name: tdd-feature-guard
 description: Enforce strict Test-Driven Development with a Red-Green-Refactor cycle before implementing any new feature behavior. Auto-triggers when implementing features or adding new behavior. Prefer this workflow whenever possible; if it cannot be followed, require explicit risk documentation.
 ---
 
 # TDD Feature Guard
+
+This skill is **repository-general**: it guides any modification agent on any feature that improves the health of the repository. All conventions (artifacts, write roots, test commands, gates) come from **AGENTS.md at the repository root** — read it when applying this skill.
 
 Use this skill whenever the task introduces new behavior in the system.
 This guard orchestrates mandatory delegation to three subagents:
@@ -30,6 +32,8 @@ If there is uncertainty, apply TDD.
 
 Every new feature MUST follow this strict 3-phase cycle. Do NOT skip phases.
 Each phase must be completed by its designated subagent before moving forward.
+
+Subagents must **respect allowed write roots and allowlisted commands** (see AGENTS.md). Do not assume a single test runner — the **scope** of the change (backend vs frontend) determines which test command to use (e.g. `npm run test:backend`, `npm run test:frontend`, or `npm test` per AGENTS.md / package.json).
 
 ### Phase 1: RED - Write Failing Test
 
