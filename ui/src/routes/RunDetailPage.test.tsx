@@ -75,7 +75,7 @@ describe("RunDetailPage", () => {
     renderDetailRoute();
 
     expect(await screen.findByText("Run run-1")).toBeInTheDocument();
-    expect(screen.getByText("AWAIT_APPROVAL")).toBeInTheDocument();
+    expect(screen.getByText("AWAIT_APPROVAL", { selector: ".workflow-node-label" })).toBeInTheDocument();
     expect(await screen.findByText("Change Request")).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Approve" })[0]);

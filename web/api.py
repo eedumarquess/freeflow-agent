@@ -8,7 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from featureflow.telemetry import compute_metrics, write_metrics_json
+from featureflow.artifacts import create_run_artifacts
+from featureflow.config import get_allowed_write_roots, get_project_root, load_config
+from featureflow.ids import generate_run_id
 from featureflow.storage import (
     STATUS_APPROVED_PATCH,
     STATUS_APPROVED_PLAN,
@@ -18,9 +20,11 @@ from featureflow.storage import (
     STATUS_WAITING_APPROVAL_PATCH,
     STATUS_WAITING_APPROVAL_PLAN,
     approve_gate,
+    init_run,
     read_run,
     reject_gate,
 )
+from featureflow.telemetry import compute_metrics, write_metrics_json
 from featureflow.workflow.engine import advance_until_pause_or_end
 from featureflow.workflow.graph import NODE_NAMES, route_from_status
 
@@ -48,8 +52,21 @@ class ApproveRequest(BaseModel):
     note: str | None = None
 
 
+class CreateRunRequest(BaseModel):
+    story: str
+
+
 def _runs_dir() -> Path:
     return Path("outputs") / "runs"
+
+
+def _runs_dir_from_config() -> tuple[Path, str, list[str]]:
+    """Returns (runs_path, outputs_dir_str, allowed_roots) from config (same as CLI)."""
+    cfg = load_config()
+    root = get_project_root()
+    outputs_dir = str(root / cfg["runs"]["outputs_dir"])
+    allowed_roots = get_allowed_write_roots(cfg)
+    return Path(outputs_dir), outputs_dir, allowed_roots
 
 
 def _normalize_run_payload(data: dict[str, Any]) -> dict[str, Any]:
@@ -185,6 +202,31 @@ def list_runs() -> list[dict]:
         except Exception:
             continue
     return items
+
+
+@app.post("/runs")
+def create_run(payload: CreateRunRequest) -> dict[str, Any]:
+    """Start a new run (same as CLI: python -m cli.main run <story>)."""
+    story = (payload.story or "").strip()
+    if not story:
+        raise HTTPException(status_code=422, detail="story is required and cannot be empty")
+
+    runs_path, outputs_dir, allowed_roots = _runs_dir_from_config()
+    run_id = generate_run_id()
+
+    try:
+        init_run(run_id, {"story": story}, outputs_dir, allowed_roots)
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    create_run_artifacts(run_id, outputs_dir, allowed_roots)
+    advance_until_pause_or_end(run_id)
+
+    run_data = read_run(run_id, outputs_dir)
+    normalized = _normalize_run_payload(run_data)
+    metrics = _metrics_for_run(run_id, run_data, runs_path)
+    normalized["metrics_summary"] = metrics.get("summary", {})
+    return {"run": normalized}
 
 
 @app.get("/runs/{run_id}")

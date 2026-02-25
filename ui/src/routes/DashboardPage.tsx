@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
-import { listRuns } from "../lib/api";
+import { createRun, listRuns } from "../lib/api";
 import { StatusBadge } from "../components/StatusBadge";
 import type { RunData } from "../types";
 
@@ -17,10 +17,20 @@ function formatDuration(seconds: number | null | undefined): string {
 }
 
 export function DashboardPage(): JSX.Element {
+  const navigate = useNavigate();
   const [runs, setRuns] = useState<RunData[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [newRunStory, setNewRunStory] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
+
+  const refreshRuns = useCallback(() => {
+    listRuns()
+      .then((data) => setRuns(sortByUpdatedAt(data)))
+      .catch((err: Error) => setError(err.message));
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -47,6 +57,28 @@ export function DashboardPage(): JSX.Element {
     };
   }, []);
 
+  const handleCreateRun = () => {
+    const story = newRunStory.trim();
+    if (!story) {
+      setCreateError("Digite a descrição da story.");
+      return;
+    }
+    setCreating(true);
+    setCreateError("");
+    createRun(story)
+      .then((run) => {
+        setNewRunStory("");
+        refreshRuns();
+        navigate(`/runs/${run.run_id}`);
+      })
+      .catch((err: Error) => {
+        setCreateError(err.message);
+      })
+      .finally(() => {
+        setCreating(false);
+      });
+  };
+
   const filtered = useMemo(
     () => runs.filter((run) => run.run_id.toLowerCase().includes(search.toLowerCase())),
     [runs, search],
@@ -58,6 +90,31 @@ export function DashboardPage(): JSX.Element {
         <h1>Freeflow Runs</h1>
         <p>Dashboard of workflow runs and approval gates.</p>
       </header>
+
+      <section className="card">
+        <h2>Iniciar nova run</h2>
+        <p>Informe a story ou descrição da feature (como na CLI: <code>python -m cli.main run &quot;...&quot;</code>).</p>
+        <label htmlFor="new-run-story">Story / descrição</label>
+        <textarea
+          id="new-run-story"
+          value={newRunStory}
+          onChange={(e) => setNewRunStory(e.target.value)}
+          placeholder="Ex: Adicionar endpoint GET /health e testes"
+          rows={3}
+          disabled={creating}
+        />
+        {createError && <p className="error">{createError}</p>}
+        <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleCreateRun}
+            disabled={creating}
+          >
+            {creating ? "Criando…" : "Criar run"}
+          </button>
+        </div>
+      </section>
 
       <section className="card">
         <label htmlFor="search-run">Search run ID</label>

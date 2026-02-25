@@ -23,6 +23,16 @@ export async function listRuns(): Promise<RunData[]> {
   return parseResponse<RunData[]>(response);
 }
 
+export async function createRun(story: string): Promise<RunData> {
+  const response = await fetch(`${API_BASE}/runs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ story: story.trim() }),
+  });
+  const body = await parseResponse<{ run: RunData }>(response);
+  return body.run;
+}
+
 export async function getRun(runId: string): Promise<RunData> {
   const response = await fetch(`${API_BASE}/runs/${runId}`);
   return parseResponse<RunData>(response);
