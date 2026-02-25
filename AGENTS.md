@@ -1,4 +1,4 @@
-# AGENTS.md — Freeflow / Featureflow
+﻿# AGENTS.md â€” Freeflow / Featureflow
 
 ## What Is This Project
 
@@ -18,11 +18,11 @@ The focus is on **productivity and safety**: controlled changes, restricted comm
 
 ### Recommended Mental Model
 
-1. **Understand the goal** — story or bug.
-2. **Plan before coding** — generate or update `change-request.md` and `test-plan.md`.
-3. **Keep changes small and reviewable** — short diffs, clear commits.
-4. **Always test** — run `pytest` and fix issues in short cycles.
-5. **Record evidence** — update `run-report.md` with what changed and why.
+1. **Understand the goal** â€” story or bug.
+2. **Plan before coding** â€” generate or update `change-request.md` and `test-plan.md`.
+3. **Keep changes small and reviewable** â€” short diffs, clear commits.
+4. **Always test** â€” run `pytest` and fix issues in short cycles.
+5. **Record evidence** â€” update `run-report.md` with what changed and why.
 
 ---
 
@@ -44,7 +44,7 @@ Do not skip gates for convenience when implementing something new.
 
 ### 4. Always produce clear artifacts per run
 Every run must include at minimum:
-- `change-request.md` — objective, scope/out-of-scope, done criteria
+- `change-request.md` â€” objective, scope/out-of-scope, done criteria
 - `test-plan.md`
 - `run-report.md`
 - `risk-report.md` (even if just an initial placeholder)
@@ -63,7 +63,7 @@ These form the **auditable history** of what was done.
 - Tests written with `pytest`.
 - Avoid heavy dependencies without a clear reason.
 - Errors must be explicit with clear messages.
-- Logging: record important run events — commands, stdout/stderr, status, and timing.
+- Logging: record important run events â€” commands, stdout/stderr, status, and timing.
 
 ---
 
@@ -80,23 +80,23 @@ These form the **auditable history** of what was done.
 
 ## Common Commands (Windows)
 
-**Comando facilitador (raiz do repo):** testa e constrói backend + UI juntos:
+**Comando facilitador (raiz do repo):** testa e constrÃ³i backend + UI juntos:
 
 ```bash
 # Testes: backend (pytest) + frontend (Vitest)
 npm test
 
-# Build do frontend (backend é Python, sem build)
+# Build do frontend (backend Ã© Python, sem build)
 npm run build
 ```
 
 Outros scripts na raiz (`package.json`):
 
 ```bash
-# Só testes backend
+# SÃ³ testes backend
 npm run test:backend
 
-# Só testes frontend (ui/)
+# SÃ³ testes frontend (ui/)
 npm run test:frontend
 
 # Subir API
@@ -106,7 +106,7 @@ npm run dev:api
 npm run dev:ui
 ```
 
-Comandos diretos (quando não usar npm na raiz):
+Comandos diretos (quando nÃ£o usar npm na raiz):
 
 ```bash
 # Run tests
@@ -146,13 +146,21 @@ Only then propose a patch.
 
 ## TDD Skill Policy
 
-For **all new feature work**, use the local skill:
-- `featureflow/skills/tdd-feature-workflow/SKILL.md`
+For **all new feature work**, use the local orchestrator skill:
+- `.agents/skills/tdd-feature-guard/SKILL.md`
+
+Apply this skill **whenever possible**. If the request introduces or extends behavior, default to this skill.
+If there is uncertainty, prefer applying TDD rather than skipping it.
+
+Mandatory subagents in order:
+1. `tdd-test-writer` (`.agents/skills/tdd-test-writer/SKILL.md`) for `RED`
+2. `tdd-implementer` (`.agents/skills/tdd-implementer/SKILL.md`) for `GREEN`
+3. `tdd-refactorer` (`.agents/skills/tdd-refactorer/SKILL.md`) for `REFACTOR`
 
 Mandatory rule:
 - Write or update a failing test first (`RED`) before editing production code.
 - Implement the minimum code to pass (`GREEN`).
 - Refactor only after tests pass, keeping tests green (`REFACTOR`).
-- Record the red/green evidence in run artifacts (`test-plan.md` and `run-report.md`).
+- Record the red/green/refactor evidence in run artifacts (`test-plan.md` and `run-report.md`).
 
 If a task cannot follow TDD (for example, no testable seam), document the reason explicitly in `risk-report.md` before changing production code.
