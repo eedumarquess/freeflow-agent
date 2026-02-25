@@ -141,3 +141,18 @@ Before modifying anything, explicitly list:
 - Where tests live and how they are run
 
 Only then propose a patch.
+
+---
+
+## TDD Skill Policy
+
+For **all new feature work**, use the local skill:
+- `featureflow/skills/tdd-feature-workflow/SKILL.md`
+
+Mandatory rule:
+- Write or update a failing test first (`RED`) before editing production code.
+- Implement the minimum code to pass (`GREEN`).
+- Refactor only after tests pass, keeping tests green (`REFACTOR`).
+- Record the red/green evidence in run artifacts (`test-plan.md` and `run-report.md`).
+
+If a task cannot follow TDD (for example, no testable seam), document the reason explicitly in `risk-report.md` before changing production code.
