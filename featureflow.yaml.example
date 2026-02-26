@@ -28,8 +28,13 @@ security:
 #   timeout_seconds: 30
 #   temperature: 0
 #   max_repo_tree_entries: 250
+#   max_repo_files_index_entries: 5000
 #   max_diff_chars: 12000
 #   max_key_file_chars: 6000
+#   grounding_enabled: true
+#   grounding_min_touched_files: 4
+#   grounding_min_total_tests: 2
+#   grounding_require_convention_evidence: true
 #
 # Example: OpenAI (commented by default):
 # llm:
@@ -41,8 +46,13 @@ security:
 #   timeout_seconds: 30
 #   temperature: 0
 #   max_repo_tree_entries: 250
+#   max_repo_files_index_entries: 5000
 #   max_diff_chars: 12000
 #   max_key_file_chars: 6000
+#   grounding_enabled: true
+#   grounding_min_touched_files: 4
+#   grounding_min_total_tests: 2
+#   grounding_require_convention_evidence: true
 #
 # Per-provider auth/env:
 #   openai:    llm.api_key or OPENAI_API_KEY
