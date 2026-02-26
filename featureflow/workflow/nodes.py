@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -82,7 +83,11 @@ def _short_error(exc: Exception, max_len: int = 240) -> str:
 def _build_llm_context(state: RunGraphState) -> dict[str, Any]:
     return {
         "repo_tree": state.context.repo_tree,
+        "repo_files_index": state.context.repo_files_index,
+        "tests_summary": state.context.tests_summary,
+        "highlight_dirs": state.context.highlight_dirs,
         "key_files": state.context.key_files,
+        "constraints": state.context.constraints,
         "current_diff": state.context.current_diff,
         "branch": state.inputs.branch,
         "base_branch": state.inputs.base_branch,
@@ -137,16 +142,75 @@ def _sanitize_step_file(file_path: str, ctx: NodeContext) -> str | None:
     return absolute_target.relative_to(repo_root).as_posix()
 
 
-def _list_repo_files(root: Path, max_entries: int = 250) -> list[str]:
+_EXCLUDED_DIRS = {".git", ".pytest_cache", "__pycache__", ".cursor", ".venv", "node_modules"}
+
+
+def _list_repo_tree_2levels(root: Path, max_entries: int = 250) -> list[str]:
+    entries: list[str] = []
+    if max_entries <= 0:
+        return entries
+    try:
+        top_level = sorted(root.iterdir(), key=lambda p: p.name.lower())
+    except OSError:
+        return entries
+
+    for item in top_level:
+        if item.name in _EXCLUDED_DIRS:
+            continue
+        line = f"{item.name}/" if item.is_dir() else item.name
+        entries.append(line)
+        if len(entries) >= max_entries:
+            return entries
+        if not item.is_dir():
+            continue
+        try:
+            children = sorted(item.iterdir(), key=lambda p: p.name.lower())
+        except OSError:
+            continue
+        for child in children:
+            if child.name in _EXCLUDED_DIRS:
+                continue
+            child_suffix = "/" if child.is_dir() else ""
+            entries.append(f"  - {item.name}/{child.name}{child_suffix}")
+            if len(entries) >= max_entries:
+                return entries
+    return entries
+
+
+def _list_repo_files_index(root: Path, max_entries: int = 5000) -> list[str]:
     items: list[str] = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in {".git", ".pytest_cache", "__pycache__", ".cursor"}]
-        for name in filenames:
+        dirnames[:] = sorted(d for d in dirnames if d not in _EXCLUDED_DIRS)
+        for name in sorted(filenames):
             rel = (Path(dirpath) / name).relative_to(root).as_posix()
             items.append(rel)
             if len(items) >= max_entries:
                 return items
     return items
+
+
+def _build_tests_summary(repo_files_index: list[str]) -> str:
+    test_paths = [path for path in repo_files_index if path.startswith("tests/")]
+    roots = sorted({path.split("/", 1)[0] for path in test_paths}) or ["tests"]
+    naming_patterns: list[str] = []
+    if any(Path(path).name.startswith("test_") for path in test_paths):
+        naming_patterns.append("test_*.py")
+    if any(Path(path).name.endswith("_test.py") for path in test_paths):
+        naming_patterns.append("*_test.py")
+    if not naming_patterns:
+        naming_patterns.append("pytest default discovery")
+    return (
+        f"test_roots={', '.join(roots)}; "
+        f"naming={', '.join(naming_patterns)}; "
+        "run=python -m pytest -q"
+    )
+
+
+def _detect_highlight_dirs(repo_files_index: list[str]) -> list[str]:
+    preferred = ["featureflow", "tests", "web", "cli", "ui", "docs"]
+    roots_present = {path.split("/", 1)[0] for path in repo_files_index if "/" in path}
+    highlighted = [name for name in preferred if name in roots_present]
+    return highlighted
 
 
 def _read_if_exists(path: Path) -> str:
@@ -183,11 +247,24 @@ def load_context_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
     state.status_meta.last_node = "LOAD_CONTEXT"
     state.status_meta.stage = "context_loaded"
 
+    llm_cfg = get_llm_config(ctx.cfg)
     key_files = {}
-    for name in ("pyproject.toml", "featureflow.yaml", "pytest.ini"):
+    key_file_candidates = (
+        "pyproject.toml",
+        "featureflow.yaml",
+        "pytest.ini",
+        "AGENTS.md",
+        "README.md",
+        "CONTRIBUTING.md",
+        "ruff.toml",
+        ".ruff.toml",
+        "mypy.ini",
+        ".mypy.ini",
+    )
+    for name in key_file_candidates:
         content = _read_if_exists(ctx.repo_root / name)
         if content:
-            key_files[name] = content[:12000]
+            key_files[name] = content[: int(llm_cfg.get("max_key_file_chars", 12000))]
 
     try:
         current_diff = get_current_diff(ctx.repo_root)
@@ -195,7 +272,16 @@ def load_context_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
         current_diff = ""
         state.status_meta.message = f"git diff unavailable: {exc}"
 
-    state.context.repo_tree = _list_repo_files(ctx.repo_root)
+    state.context.repo_tree = _list_repo_tree_2levels(
+        ctx.repo_root,
+        max_entries=int(llm_cfg.get("max_repo_tree_entries", 250)),
+    )
+    state.context.repo_files_index = _list_repo_files_index(
+        ctx.repo_root,
+        max_entries=int(llm_cfg.get("max_repo_files_index_entries", 5000)),
+    )
+    state.context.tests_summary = _build_tests_summary(state.context.repo_files_index)
+    state.context.highlight_dirs = _detect_highlight_dirs(state.context.repo_files_index)
     state.context.key_files = key_files
     state.context.constraints = {
         "allowed_write_roots": get_allowed_write_roots(ctx.cfg),
@@ -217,8 +303,11 @@ def plan_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
     run_dir = _run_dir(state)
     change_request_path = run_dir / "change-request.md"
     test_plan_path = run_dir / "test-plan.md"
+    plan_json_path = run_dir / "plan.json"
+    refusal_json_path = run_dir / "refusal.json"
     plan_source = "templates"
     plan_note = "LLM disabled or story missing; using existing templates."
+    refusal_message: str | None = None
 
     llm_cfg = get_llm_config(ctx.cfg)
     if llm_cfg["enabled"] and state.inputs.story.strip():
@@ -230,11 +319,29 @@ def plan_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
             )
             change_request_path.write_text(generated.change_request_md, encoding="utf-8")
             test_plan_path.write_text(generated.test_plan_md, encoding="utf-8")
-            plan_source = "llm"
-            plan_note = (
-                f"Plan artifacts generated from LLM (provider: {llm_cfg.get('provider', 'openai')}, "
-                f"model: {llm_cfg.get('model', '')})."
-            )
+            if generated.plan is not None:
+                plan_json_path.write_text(
+                    json.dumps(generated.plan.model_dump(), ensure_ascii=True, indent=2),
+                    encoding="utf-8",
+                )
+                refusal_json_path.unlink(missing_ok=True)
+                plan_source = "llm"
+                plan_note = (
+                    f"Plan artifacts generated from LLM (provider: {llm_cfg.get('provider', 'openai')}, "
+                    f"model: {llm_cfg.get('model', '')})."
+                )
+            elif generated.refusal is not None:
+                refusal_json_path.write_text(
+                    json.dumps(generated.refusal.model_dump(), ensure_ascii=True, indent=2),
+                    encoding="utf-8",
+                )
+                plan_json_path.unlink(missing_ok=True)
+                plan_source = "llm-refusal"
+                plan_note = "Planner refused due to insufficient grounded evidence."
+                refusal_message = generated.refusal.message
+                state.status = STATUS_FAILED
+                state.status_meta.ok = False
+                state.status_meta.message = generated.refusal.message
         except Exception as exc:
             plan_source = "fallback"
             plan_note = f"LLM plan generation failed; templates kept. {_short_error(exc)}"
@@ -242,12 +349,13 @@ def plan_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
     state.plan.change_request_md = _read_if_exists(change_request_path)
     state.plan.test_plan_md = _read_if_exists(test_plan_path)
 
-    if state.inputs.story:
+    if state.inputs.story and state.status != STATUS_FAILED:
         state.plan.done_criteria = [
             "changes aligned with story",
             "pytest executed via allowlist",
         ]
-    state.status_meta.message = "Plan artifacts are ready."
+    if state.status != STATUS_FAILED:
+        state.status_meta.message = "Plan artifacts are ready."
     _append_markdown(
         Path(state.artifacts.run_report_path),
         "Node PLAN",
@@ -260,6 +368,10 @@ def plan_node(data: dict[str, Any], ctx: NodeContext) -> dict[str, Any]:
         ),
     )
     _persist_state(state, ctx)
+    if refusal_message:
+        run_data = read_run(state.run_id, ctx.outputs_dir)
+        run_data["failure_reason"] = refusal_message
+        write_run(state.run_id, ctx.outputs_dir, run_data, ctx.allowed_roots)
     return state.model_dump()
 
 

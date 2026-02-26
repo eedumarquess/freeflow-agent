@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from featureflow.config import SUPPORTED_LLM_PROVIDERS, get_llm_config
 
-from .models import PlannerOutput, ProposerOutput
+from .models import PlannerOutput, ProposerOutput, RefusalPayload
 
 
 class LLMServiceError(RuntimeError):
@@ -37,7 +37,15 @@ def _truncate_text(value: Any, max_chars: int) -> str:
 def _build_context_payload(context_dict: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     repo_tree_raw = context_dict.get("repo_tree")
     repo_tree = repo_tree_raw if isinstance(repo_tree_raw, list) else []
+    repo_files_index_raw = context_dict.get("repo_files_index")
+    repo_files_index = repo_files_index_raw if isinstance(repo_files_index_raw, list) else []
+    highlight_dirs_raw = context_dict.get("highlight_dirs")
+    highlight_dirs = highlight_dirs_raw if isinstance(highlight_dirs_raw, list) else []
+    constraints_raw = context_dict.get("constraints")
+    constraints = constraints_raw if isinstance(constraints_raw, dict) else {}
+    tests_summary = str(context_dict.get("tests_summary", "") or "")
     max_repo_tree_entries = int(cfg["max_repo_tree_entries"])
+    max_repo_files_index_entries = int(cfg["max_repo_files_index_entries"])
     max_key_file_chars = int(cfg["max_key_file_chars"])
     max_diff_chars = int(cfg["max_diff_chars"])
 
@@ -49,18 +57,149 @@ def _build_context_payload(context_dict: dict[str, Any], cfg: dict[str, Any]) ->
 
     return {
         "repo_tree": [str(item) for item in repo_tree[:max_repo_tree_entries]],
+        "repo_files_index": [str(item) for item in repo_files_index[:max_repo_files_index_entries]],
+        "highlight_dirs": [str(item) for item in highlight_dirs],
+        "tests_summary": _truncate_text(tests_summary, max_key_file_chars),
         "key_files": key_files,
+        "constraints": constraints,
         "current_diff": _truncate_text(context_dict.get("current_diff", ""), max_diff_chars),
         "branch": context_dict.get("branch"),
         "base_branch": context_dict.get("base_branch"),
     }
 
 
+def _normalize_command(raw: Any) -> str:
+    if isinstance(raw, list):
+        return " ".join(str(part).strip() for part in raw if str(part).strip())
+    text = str(raw or "").strip()
+    return " ".join(text.split())
+
+
+def _build_grounding_refusal(
+    reasons: list[str],
+    inspected_paths: set[str],
+    repo_files_index: set[str],
+    change_request_md: str,
+    test_plan_md: str,
+) -> PlannerOutput:
+    inspected = sorted(path for path in inspected_paths if path)
+    if not inspected:
+        inspected = sorted(repo_files_index)[:50]
+    message = f"Grounding validation failed: {reasons[0]}" if reasons else "Grounding validation failed."
+    return PlannerOutput(
+        change_request_md=change_request_md,
+        test_plan_md=test_plan_md,
+        plan=None,
+        refusal=RefusalPayload(
+            missing=reasons,
+            inspected_paths=inspected,
+            message=message,
+        ),
+    )
+
+
+def _apply_grounding_validation(
+    output: PlannerOutput,
+    context_dict: dict[str, Any],
+    cfg: dict[str, Any],
+    llm_cfg: dict[str, Any],
+) -> PlannerOutput:
+    if not llm_cfg.get("grounding_enabled", True):
+        return output
+    if output.refusal is not None:
+        return output
+    if output.plan is None:
+        return output
+
+    repo_files_index_raw = context_dict.get("repo_files_index")
+    repo_files_index_list = repo_files_index_raw if isinstance(repo_files_index_raw, list) else []
+    repo_files_index = {str(path) for path in repo_files_index_list if str(path).strip()}
+    convention_docs = {"AGENTS.md", "README.md", "CONTRIBUTING.md"} & repo_files_index
+
+    reasons: list[str] = []
+    inspected_paths: set[str] = set()
+    plan = output.plan
+
+    for item in plan.touched_files:
+        inspected_paths.add(item.path)
+        if item.path not in repo_files_index:
+            reasons.append(f"touched_files path not found: {item.path}")
+
+    for item in plan.existing_tests:
+        inspected_paths.add(item.path)
+        if item.path not in repo_files_index:
+            reasons.append(f"existing_tests path not found: {item.path}")
+
+    for item in plan.evidence:
+        inspected_paths.add(item.path)
+        if item.path not in repo_files_index:
+            reasons.append(f"evidence path not found: {item.path}")
+
+    for item in plan.proposed_edits:
+        inspected_paths.add(item.path)
+        if not item.is_new and item.path not in repo_files_index:
+            reasons.append(f"proposed_edits path not found and is_new is false: {item.path}")
+
+    min_touched = int(llm_cfg.get("grounding_min_touched_files", 4))
+    if len(plan.touched_files) < min_touched:
+        reasons.append(f"touched_files count below minimum ({len(plan.touched_files)} < {min_touched})")
+
+    min_total_tests = int(llm_cfg.get("grounding_min_total_tests", 2))
+    total_tests = len(plan.existing_tests) + len(plan.new_tests)
+    if total_tests < min_total_tests:
+        reasons.append(f"total planned tests below minimum ({total_tests} < {min_total_tests})")
+
+    require_convention_evidence = bool(llm_cfg.get("grounding_require_convention_evidence", True))
+    if require_convention_evidence and convention_docs:
+        evidence_paths = {item.path for item in plan.evidence}
+        key_files_keys = set(context_dict.get("key_files") or [])
+        # Satisfied if plan cites a convention doc in evidence, or context included one in key_files (LLM had it)
+        has_evidence = bool(evidence_paths & convention_docs) or bool(key_files_keys & convention_docs)
+        if not has_evidence:
+            docs = ", ".join(sorted(convention_docs))
+            reasons.append(f"evidence must include at least one convention doc ({docs})")
+
+    allowed_commands_raw = cfg.get("security", {}).get("allowed_commands", []) if isinstance(cfg, dict) else []
+    allowed_commands = {_normalize_command(cmd) for cmd in allowed_commands_raw}
+    for command in plan.commands_to_run:
+        normalized = _normalize_command(command)
+        if not normalized:
+            reasons.append("commands_to_run contains an empty command")
+            continue
+        if normalized not in allowed_commands:
+            reasons.append(f"commands_to_run command is not allowed: {normalized}")
+
+    if reasons:
+        return _build_grounding_refusal(
+            reasons=reasons,
+            inspected_paths=inspected_paths,
+            repo_files_index=repo_files_index,
+            change_request_md=output.change_request_md,
+            test_plan_md=output.test_plan_md,
+        )
+    return output
+
+
 def _extract_json_from_code_fence(raw: str) -> str | None:
-    match = re.match(r"^```(?:json)?\s*(.*?)\s*```$", raw.strip(), flags=re.DOTALL | re.IGNORECASE)
-    if not match:
-        return None
-    return match.group(1).strip()
+    """Extract JSON from a markdown code block. Matches whole-string or first block in text."""
+    text = raw.strip()
+    # Whole string is a single code block
+    match = re.match(r"^```(?:json)?\s*\n?(.*?)\s*```\s*$", text, flags=re.DOTALL | re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    # First code block anywhere in the response (LLM added text before/after)
+    search = re.search(r"```(?:json)?\s*\n?(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
+    if search:
+        return search.group(1).strip()
+    return None
+
+
+def _truncate_for_error(text: str, max_chars: int = 200) -> str:
+    """Return a safe one-line preview for error messages."""
+    one = " ".join(text.split())
+    if len(one) <= max_chars:
+        return one
+    return one[:max_chars] + "..."
 
 
 def _parse_json_object(raw_text: str) -> dict[str, Any]:
@@ -70,14 +209,19 @@ def _parse_json_object(raw_text: str) -> dict[str, Any]:
 
     try:
         payload = json.loads(payload_text)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as first_err:
         fenced = _extract_json_from_code_fence(payload_text)
         if not fenced:
-            raise LLMServiceError("LLM response is not valid JSON")
+            preview = _truncate_for_error(payload_text)
+            raise LLMServiceError(
+                f"LLM response is not valid JSON (no JSON object or code block). Preview: {preview!r}"
+            ) from first_err
         try:
             payload = json.loads(fenced)
         except json.JSONDecodeError as exc:
-            raise LLMServiceError("LLM response inside code fence is not valid JSON") from exc
+            raise LLMServiceError(
+                f"LLM response inside code fence is not valid JSON: line {exc.lineno} col {exc.colno} — {exc.msg}"
+            ) from exc
 
     if not isinstance(payload, dict):
         raise LLMServiceError("LLM response JSON must be an object")
@@ -240,15 +384,17 @@ def _invoke_llm(prompt_name: str, input_payload: dict[str, Any], cfg: dict[str, 
 
 
 def generate_plan(story: str, context_dict: dict[str, Any], cfg: dict[str, Any]) -> PlannerOutput:
+    llm_cfg = get_llm_config(cfg)
     input_payload = {
         "story": story,
-        "context": _build_context_payload(context_dict, get_llm_config(cfg)),
+        "context": _build_context_payload(context_dict, llm_cfg),
     }
     raw = _invoke_llm("planner.md", input_payload, cfg)
     try:
-        return PlannerOutput.model_validate(raw)
+        validated = PlannerOutput.model_validate(raw)
     except ValidationError as exc:
         raise LLMServiceError(f"Planner response validation failed: {exc}") from exc
+    return _apply_grounding_validation(validated, context_dict, cfg, llm_cfg)
 
 
 def generate_proposed_steps(

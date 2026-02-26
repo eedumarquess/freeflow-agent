@@ -16,8 +16,13 @@ DEFAULT_LLM_CONFIG = {
     "timeout_seconds": 30,
     "temperature": 0.0,
     "max_repo_tree_entries": 250,
+    "max_repo_files_index_entries": 5000,
     "max_diff_chars": 12000,
     "max_key_file_chars": 6000,
+    "grounding_enabled": True,
+    "grounding_min_touched_files": 4,
+    "grounding_min_total_tests": 2,
+    "grounding_require_convention_evidence": True,
 }
 
 SUPPORTED_LLM_PROVIDERS = ("openai", "anthropic", "gemini", "ollama")
@@ -113,9 +118,28 @@ def get_llm_config(cfg: dict[str, Any]) -> dict[str, Any]:
         1,
         _to_int(merged.get("max_repo_tree_entries"), DEFAULT_LLM_CONFIG["max_repo_tree_entries"]),
     )
+    merged["max_repo_files_index_entries"] = max(
+        1,
+        _to_int(merged.get("max_repo_files_index_entries"), DEFAULT_LLM_CONFIG["max_repo_files_index_entries"]),
+    )
     merged["max_diff_chars"] = max(1, _to_int(merged.get("max_diff_chars"), DEFAULT_LLM_CONFIG["max_diff_chars"]))
     merged["max_key_file_chars"] = max(
         1,
         _to_int(merged.get("max_key_file_chars"), DEFAULT_LLM_CONFIG["max_key_file_chars"]),
+    )
+    merged["grounding_enabled"] = bool(merged.get("grounding_enabled", DEFAULT_LLM_CONFIG["grounding_enabled"]))
+    merged["grounding_min_touched_files"] = max(
+        0,
+        _to_int(merged.get("grounding_min_touched_files"), DEFAULT_LLM_CONFIG["grounding_min_touched_files"]),
+    )
+    merged["grounding_min_total_tests"] = max(
+        0,
+        _to_int(merged.get("grounding_min_total_tests"), DEFAULT_LLM_CONFIG["grounding_min_total_tests"]),
+    )
+    merged["grounding_require_convention_evidence"] = bool(
+        merged.get(
+            "grounding_require_convention_evidence",
+            DEFAULT_LLM_CONFIG["grounding_require_convention_evidence"],
+        )
     )
     return merged

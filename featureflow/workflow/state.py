@@ -34,6 +34,9 @@ class PlanState(BaseModel):
 
 class ContextState(BaseModel):
     repo_tree: list[str] = Field(default_factory=list)
+    repo_files_index: list[str] = Field(default_factory=list)
+    tests_summary: str = ""
+    highlight_dirs: list[str] = Field(default_factory=list)
     key_files: dict[str, str] = Field(default_factory=dict)
     constraints: dict[str, Any] = Field(default_factory=dict)
     current_diff: str = ""
