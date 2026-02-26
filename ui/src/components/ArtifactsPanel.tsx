@@ -9,6 +9,8 @@ const ARTIFACTS = [
   "run-report.md",
   "risk-report.md",
   "pr-comment.md",
+  "plan.json",
+  "refusal.json",
 ];
 
 interface ArtifactsPanelProps {
@@ -47,6 +49,16 @@ export function ArtifactsPanel({ runId }: ArtifactsPanelProps): JSX.Element {
     };
   }, [runId, selected]);
 
+  const isJsonArtifact = selected.endsWith(".json");
+  let jsonContent = "";
+  if (isJsonArtifact && content) {
+    try {
+      jsonContent = JSON.stringify(JSON.parse(content), null, 2);
+    } catch {
+      jsonContent = content;
+    }
+  }
+
   return (
     <section className="card">
       <h3>Artifacts</h3>
@@ -64,10 +76,15 @@ export function ArtifactsPanel({ runId }: ArtifactsPanelProps): JSX.Element {
       </div>
       {loading && <p>Loading artifact...</p>}
       {error && <p className="error">{error}</p>}
-      {!loading && !error && (
+      {!loading && !error && !isJsonArtifact && (
         <div className="markdown">
           <ReactMarkdown>{content}</ReactMarkdown>
         </div>
+      )}
+      {!loading && !error && isJsonArtifact && (
+        <pre className="artifact-json">
+          <code>{jsonContent}</code>
+        </pre>
       )}
     </section>
   );

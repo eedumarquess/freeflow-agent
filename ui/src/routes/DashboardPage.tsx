@@ -27,7 +27,7 @@ export function DashboardPage(): JSX.Element {
   const [createError, setCreateError] = useState("");
 
   const refreshRuns = useCallback(() => {
-    listRuns()
+    return listRuns()
       .then((data) => setRuns(sortByUpdatedAt(data)))
       .catch((err: Error) => setError(err.message));
   }, []);
@@ -66,10 +66,15 @@ export function DashboardPage(): JSX.Element {
     setCreating(true);
     setCreateError("");
     createRun(story)
-      .then((run) => {
+      .then(async (run) => {
         setNewRunStory("");
-        refreshRuns();
-        navigate(`/runs/${run.run_id}`);
+        // Atualização otimista: inclui a nova run na lista imediatamente
+        setRuns((prev) => sortByUpdatedAt([run, ...prev]));
+        // Recarrega a lista do servidor; se falhar, a run já está na lista
+        await refreshRuns().catch(() => {});
+        if (run?.run_id) {
+          navigate(`/runs/${run.run_id}`);
+        }
       })
       .catch((err: Error) => {
         setCreateError(err.message);
