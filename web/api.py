@@ -43,6 +43,8 @@ ALLOWED_ARTIFACTS = {
     "run-report.md",
     "risk-report.md",
     "pr-comment.md",
+    "plan.json",
+    "refusal.json",
 }
 
 
@@ -339,4 +341,5 @@ def get_run_artifact(run_id: str, name: str) -> FileResponse:
     if not artifact_path.exists() or not artifact_path.is_file():
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    return FileResponse(path=artifact_path, filename=name, media_type="text/markdown")
+    media_type = "application/json" if name.endswith(".json") else "text/markdown"
+    return FileResponse(path=artifact_path, filename=name, media_type=media_type)
