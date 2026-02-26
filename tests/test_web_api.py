@@ -223,6 +223,28 @@ def test_get_artifact_missing_file_returns_404(tmp_path: Path, monkeypatch) -> N
     assert response.json()["detail"] == "Artifact not found"
 
 
+def test_get_artifact_supports_plan_json_and_refusal_json(tmp_path: Path, monkeypatch) -> None:
+    runs_dir = tmp_path / "outputs" / "runs"
+    run_id = "run_api_artifact_json"
+    init_run(run_id, {"story": "artifact json"}, str(runs_dir), [str(tmp_path)])
+    run_output_dir = runs_dir / run_id
+    run_output_dir.mkdir(parents=True, exist_ok=True)
+    (run_output_dir / "plan.json").write_text('{"plan":"ok"}', encoding="utf-8")
+    (run_output_dir / "refusal.json").write_text('{"refusal":"ok"}', encoding="utf-8")
+    _set_runs_dir(monkeypatch, runs_dir)
+    client = TestClient(app)
+
+    plan_resp = client.get(f"/runs/{run_id}/artifacts/plan.json")
+    refusal_resp = client.get(f"/runs/{run_id}/artifacts/refusal.json")
+
+    assert plan_resp.status_code == 200
+    assert plan_resp.headers["content-type"].startswith("application/json")
+    assert plan_resp.text == '{"plan":"ok"}'
+    assert refusal_resp.status_code == 200
+    assert refusal_resp.headers["content-type"].startswith("application/json")
+    assert refusal_resp.text == '{"refusal":"ok"}'
+
+
 def test_get_run_includes_normalized_fields(tmp_path: Path, monkeypatch) -> None:
     runs_dir = tmp_path / "outputs" / "runs"
     run_id = "run_api_get_normalized"

@@ -95,3 +95,10 @@ def test_supported_providers_include_all_four() -> None:
 def test_default_llm_config_has_base_url() -> None:
     assert "base_url" in DEFAULT_LLM_CONFIG
     assert DEFAULT_LLM_CONFIG["base_url"] == ""
+
+
+def test_default_llm_config_has_grounding_controls() -> None:
+    assert DEFAULT_LLM_CONFIG["grounding_enabled"] is True
+    assert DEFAULT_LLM_CONFIG["grounding_min_touched_files"] == 4
+    assert DEFAULT_LLM_CONFIG["grounding_min_total_tests"] == 2
+    assert DEFAULT_LLM_CONFIG["grounding_require_convention_evidence"] is True

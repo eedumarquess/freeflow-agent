@@ -4,8 +4,19 @@ from pathlib import Path
 
 import featureflow.workflow.nodes as wf_nodes
 from featureflow.artifacts import create_run_artifacts
-from featureflow.llm.models import PlannerOutput, ProposedStepOutput, ProposerOutput
-from featureflow.storage import STATUS_PATCH_PROPOSED, init_run, read_run
+from featureflow.llm.models import (
+    EvidenceItem,
+    ExistingTestItem,
+    NewTestItem,
+    PlanPayload,
+    PlannerOutput,
+    ProposedEdit,
+    ProposedStepOutput,
+    ProposerOutput,
+    RefusalPayload,
+    TouchedFile,
+)
+from featureflow.storage import STATUS_FAILED, STATUS_PATCH_PROPOSED, init_run, read_run
 from featureflow.workflow.nodes import NodeContext, load_context_node, plan_node, propose_changes_node
 
 
@@ -47,6 +58,31 @@ def test_plan_node_uses_llm_when_enabled(tmp_path: Path, monkeypatch) -> None:
         lambda **_kwargs: PlannerOutput(
             change_request_md="# Change Request\n\n## Objective\n- Implement feature",
             test_plan_md="# Test Plan\n\n## Manual Validation\n- Validate flow",
+            plan=PlanPayload(
+                touched_files=[
+                    TouchedFile(path="featureflow/workflow/nodes.py", reason="planner"),
+                    TouchedFile(path="featureflow/llm/service.py", reason="grounding"),
+                    TouchedFile(path="featureflow/llm/models.py", reason="schema"),
+                    TouchedFile(path="tests/test_llm_service.py", reason="coverage"),
+                    TouchedFile(path="README.md", reason="conventions"),
+                ],
+                proposed_edits=[
+                    ProposedEdit(
+                        path="featureflow/llm/service.py",
+                        change_summary="grounding checker",
+                        is_new=False,
+                    )
+                ],
+                existing_tests=[
+                    ExistingTestItem(path="tests/test_llm_service.py", why_relevant="planner contract"),
+                ],
+                new_tests=[
+                    NewTestItem(path="tests/test_workflow_llm_fallback.py", what_it_validates="persistence"),
+                ],
+                commands_to_run=["python -m pytest -q"],
+                evidence=[EvidenceItem(path="README.md", excerpt_or_reason="workflow docs")],
+            ),
+            refusal=None,
         ),
     )
 
@@ -59,6 +95,8 @@ def test_plan_node_uses_llm_when_enabled(tmp_path: Path, monkeypatch) -> None:
     assert "Source: `llm`" in run_report
     assert "provider:" in run_report
     assert "model:" in run_report
+    assert (outputs_dir / run_id / "plan.json").exists()
+    assert not (outputs_dir / run_id / "refusal.json").exists()
 
 
 def test_plan_node_falls_back_when_llm_fails(tmp_path: Path, monkeypatch) -> None:
@@ -79,6 +117,39 @@ def test_plan_node_falls_back_when_llm_fails(tmp_path: Path, monkeypatch) -> Non
 
     run_report = (outputs_dir / run_id / "run-report.md").read_text(encoding="utf-8")
     assert "Source: `fallback`" in run_report
+
+
+def test_plan_node_stops_run_when_planner_refuses(tmp_path: Path, monkeypatch) -> None:
+    outputs_dir = tmp_path / "outputs" / "runs"
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    cfg = _cfg(outputs_dir, tmp_path)
+    run_id = "run_plan_refusal"
+    init_run(run_id, {"story": "Implement feature"}, str(outputs_dir), [str(tmp_path)])
+    create_run_artifacts(run_id, str(outputs_dir), [str(tmp_path)])
+    ctx = NodeContext(cfg=cfg, repo_root=tmp_path, outputs_dir=str(outputs_dir), allowed_roots=[str(tmp_path)])
+
+    monkeypatch.setattr(
+        wf_nodes,
+        "generate_plan",
+        lambda **_kwargs: PlannerOutput(
+            change_request_md="# Change Request\n\n## Objective\n- Insufficient data",
+            test_plan_md="# Test Plan\n\n## Manual Validation\n- N/A",
+            plan=None,
+            refusal=RefusalPayload(
+                missing=["No tests relevant to story"],
+                inspected_paths=["featureflow/", "tests/"],
+                message="Planner refused due to missing evidence.",
+            ),
+        ),
+    )
+
+    data = read_run(run_id, str(outputs_dir))
+    out = plan_node(data, ctx)
+    assert out["status"] == STATUS_FAILED
+    run_data = read_run(run_id, str(outputs_dir))
+    assert run_data["failure_reason"] == "Planner refused due to missing evidence."
+    assert (outputs_dir / run_id / "refusal.json").exists()
+    assert not (outputs_dir / run_id / "plan.json").exists()
 
 
 def test_propose_changes_falls_back_when_llm_steps_are_invalid(tmp_path: Path, monkeypatch) -> None:
