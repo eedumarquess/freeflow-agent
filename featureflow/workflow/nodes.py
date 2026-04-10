@@ -121,6 +121,8 @@ def _sanitize_step_file(file_path: str, ctx: NodeContext) -> str | None:
     if not raw or "\x00" in raw:
         return None
     normalized = raw.replace("\\", "/")
+    if re.match(r"^[A-Za-z]:/", normalized):
+        return None
     candidate_path = Path(normalized)
     if candidate_path.is_absolute():
         return None
